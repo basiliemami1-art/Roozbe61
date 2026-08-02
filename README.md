@@ -12,7 +12,8 @@
   ۱۴۰۵/۰۵/۱۱ تست و زنده بودند؛ حدود ۲۶٬۰۰۰ کانفیگ).
 - **پشتیبانی از همه‌ی پروتکل‌های رایج**: VLESS (با Reality و XTLS)، VMess،
   Trojan، Shadowsocks، Hysteria2، TUIC، WireGuard/WARP، SOCKS و HTTP.
-- **دو هسته**: sing-box (پیش‌فرض، پوشش کامل) و Xray. هسته از تنظیمات قابل تعویض است.
+- **هسته‌ی sing-box** که تونل TUN را می‌سازد و همه‌ی پروتکل‌های بالا را پوشش
+  می‌دهد. (چرا فقط یک هسته: بخش «محدودیت‌ها».)
 - **مرتب‌سازی سریع‌ترین‌ها بالا**: تست هم‌زمان هزاران سرور و انتخاب خودکار بهترین.
 - **مسیریابی هوشمند**: عبور مستقیم سایت‌های ایرانی و شبکه‌ی محلی، مسدودسازی
   اختیاری تبلیغات، تونل بر پایه‌ی برنامه.
@@ -38,10 +39,8 @@ APK با کلید debug امضا می‌شود مگر اینکه secretهای `K
 
 برای هر معماری یک APK جدا ساخته می‌شود. **اگر نمی‌دانید کدام را بگیرید،
 `app-arm64-v8a-release.apk` را بردارید** — تقریباً همه‌ی گوشی‌های امروزی همین
-است. حجم هر APK حدود ۵۰ تا ۷۰ مگابایت است، چون هر دو هسته داخلش هست
-(sing-box حدود ۶۰ و Xray حدود ۳۴ مگابایت کد نیتیو در هر معماری). اگر فقط
-sing-box را بخواهید، حذف مرحله‌ی `Fetch Xray core` از ورک‌فلو و فایل
-`XrayRunner.kt` حجم را تقریباً نصف می‌کند.
+است. حجم هر APK حدود ۳۰ مگابایت است (هسته‌ی sing-box در هر معماری حدود ۶۰
+مگابایت کد نیتیو دارد که فشرده می‌شود).
 
 ## نکته‌های مهم
 
@@ -69,20 +68,13 @@ ranks them by latency, and floats the fastest to the top.
                   ┌──────────────┐
    TUN device ───▶│   sing-box   │───▶ VLESS / VMess / Trojan / SS /
    (VpnService)   │  (libbox.aar)│     Hysteria2 / TUIC / WireGuard
-                  └──────┬───────┘
-                         │ optional SOCKS chain
-                         ▼
-                  ┌──────────────┐
-                  │     Xray     │───▶ VMess / VLESS / Reality / Trojan / SS
-                  │(libv2ray.aar)│
                   └──────────────┘
 ```
 
-sing-box always owns the TUN device. Selecting the Xray core starts Xray as a
-loopback SOCKS5 proxy and points sing-box at it, so there is exactly one packet
-path regardless of core. The app's own package is excluded from the VPN
-(`addDisallowedApplication`), which is what keeps Xray's outbound sockets from
-being routed back into the tunnel.
+sing-box owns the TUN device, which the app creates through
+`VpnService.Builder` on libbox's behalf. The app's own package is excluded from
+the VPN (`addDisallowedApplication`) so its traffic — including the loopback
+probe used to measure real tunnel delay — never re-enters the tunnel.
 
 | Layer | Location |
 |---|---|
@@ -90,15 +82,16 @@ being routed back into the tunnel.
 | Source list | [`data/Sources.kt`](app/src/main/java/com/gozar/app/data/Sources.kt) |
 | Fetching + Telegram scraping | [`net/SourceFetcher.kt`](app/src/main/java/com/gozar/app/net/SourceFetcher.kt) |
 | Latency ranking | [`net/LatencyTester.kt`](app/src/main/java/com/gozar/app/net/LatencyTester.kt) |
-| Core config generation | [`core/SingBoxConfig.kt`](app/src/main/java/com/gozar/app/core/SingBoxConfig.kt), [`core/XrayConfig.kt`](app/src/main/java/com/gozar/app/core/XrayConfig.kt) |
+| Core config generation | [`core/SingBoxConfig.kt`](app/src/main/java/com/gozar/app/core/SingBoxConfig.kt) |
 | Tunnel | [`vpn/GozarVpnService.kt`](app/src/main/java/com/gozar/app/vpn/GozarVpnService.kt), [`vpn/PlatformInterfaceImpl.kt`](app/src/main/java/com/gozar/app/vpn/PlatformInterfaceImpl.kt) |
 | UI | [`ui/`](app/src/main/java/com/gozar/app/ui) |
 
 ### Building locally
 
-Requires JDK 21, the Android SDK (platform 35, build-tools 35), Go 1.24+ and the
-NDK. See [`app/libs/README.md`](app/libs/README.md) for how to produce the two
-core AARs, then:
+Requires **JDK 17** (sing-box's libbox build rejects anything else), the Android
+SDK (platform 35, build-tools 35), Go 1.24+ and **NDK r28 or newer**. See
+[`app/libs/README.md`](app/libs/README.md) for how to produce the core AAR,
+then:
 
 ```bash
 ./gradlew :app:assembleRelease
@@ -117,13 +110,8 @@ the first CI run is the compiler. These pieces were checked directly:
   `NetworkInterface` setters, and `CommandServerHandler`. The gomobile naming
   rule matters here — `getMTU()` and `getDNSServerAddress()` do not map onto
   Kotlin property syntax, which is why the code calls the methods explicitly.
-- **Xray binding** — the same check against the official `libv2ray.aar` release:
-  `CoreCallbackHandler`'s three `long`-returning methods, `initCoreEnv`,
-  `newCoreController`, `startLoop(String, int)`, `stopLoop()` and
-  `getIsRunning()` all match `XrayRunner.kt`. Note this is the newer
-  `CoreController` API, not the older `V2RayPoint` one most guides describe.
-- **ABI coverage** — both cores ship arm64-v8a, armeabi-v7a, x86 and x86_64,
-  and both declare a lower `minSdk` (23 and 24) than the app's 26.
+- **ABI coverage** — the core ships arm64-v8a, armeabi-v7a, x86 and x86_64, and
+  declares a lower `minSdk` (23) than the app's 26.
 - **Config sources** — all 38 shipped sources were fetched over the network and
   returned live configs.
 - **Link extraction** — the `URI_PATTERN` literal was run against real
@@ -132,6 +120,15 @@ the first CI run is the compiler. These pieces were checked directly:
 - **Resources and CI** — all 17 XML files and the workflow YAML parse.
 
 ### Known limitations
+
+- **One core only.** Shipping sing-box *and* Xray in one APK is not possible.
+  Every gomobile-generated AAR bundles its own copy of the unnamespaced `go.*`
+  runtime, so the two collide with `Duplicate class go.Seq` at merge time — and
+  each copy binds `go.Seq` to a different native library (`libbox.so` vs
+  `libgojni.so`), so merging the classes by hand would leave one core's JNI
+  unregistered at runtime. sing-box is the one kept because it is a strict
+  superset here: everything Xray would contribute (VMess, VLESS, Reality,
+  Trojan, Shadowsocks) plus Hysteria2, TUIC and WireGuard, which Xray lacks.
 
 - Traffic counters read `TrafficStats` for the app's own UID. Because the app is
   excluded from its own tunnel, that UID carries the tunnel's upstream sockets —

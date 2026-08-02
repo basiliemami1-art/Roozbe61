@@ -1,9 +1,6 @@
 package com.gozar.app.model
 
-/**
- * Wire protocols we can parse. Not every protocol is supported by every core;
- * [Protocol.supportedBy] answers that.
- */
+/** Wire protocols we can parse. All of them are supported by the sing-box core. */
 enum class Protocol(val scheme: String, val label: String) {
     VMESS("vmess", "VMess"),
     VLESS("vless", "VLESS"),
@@ -14,11 +11,6 @@ enum class Protocol(val scheme: String, val label: String) {
     WIREGUARD("wireguard", "WireGuard"),
     SOCKS("socks", "SOCKS"),
     HTTP("http", "HTTP");
-
-    fun supportedBy(core: CoreType): Boolean = when (core) {
-        CoreType.SING_BOX -> true
-        CoreType.XRAY -> this != HYSTERIA2 && this != TUIC && this != WIREGUARD
-    }
 
     companion object {
         fun fromScheme(raw: String): Protocol? = when (raw.lowercase()) {
@@ -36,20 +28,10 @@ enum class Protocol(val scheme: String, val label: String) {
     }
 }
 
-enum class CoreType(val id: String) {
-    SING_BOX("sing-box"),
-    XRAY("xray");
-
-    companion object {
-        fun fromId(id: String?): CoreType =
-            entries.firstOrNull { it.id == id } ?: SING_BOX
-    }
-}
-
 /**
- * A fully parsed proxy definition. Every field a core config generator could need
- * lives here so that [com.gozar.app.core.SingBoxConfig] and
- * [com.gozar.app.core.XrayConfig] never have to re-parse the original URI.
+ * A fully parsed proxy definition. Every field the config generator could need
+ * lives here so that [com.gozar.app.core.SingBoxConfig] never has to re-parse
+ * the original URI.
  */
 data class ProxyConfig(
     val protocol: Protocol,

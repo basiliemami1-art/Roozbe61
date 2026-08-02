@@ -24,8 +24,6 @@ object SingBoxConfig {
     class UnsupportedConfigException(message: String) : Exception(message)
 
     /**
-     * @param chainSocksPort when set, the tunnel forwards to a local SOCKS proxy
-     *   (the Xray core) instead of dialing the server itself.
      * @param localProxyPort a loopback mixed inbound. The app is excluded from
      *   its own tunnel, so this is the only way it can measure end-to-end delay
      *   through the proxy it just brought up.
@@ -33,7 +31,6 @@ object SingBoxConfig {
     fun build(
         proxy: ProxyConfig,
         settings: Settings,
-        chainSocksPort: Int? = null,
         localProxyPort: Int? = null,
     ): String {
         val root = JSONObject()
@@ -56,16 +53,7 @@ object SingBoxConfig {
         val outbounds = JSONArray()
         val endpoints = JSONArray()
 
-        if (chainSocksPort != null) {
-            outbounds.put(
-                JSONObject()
-                    .put("type", "socks")
-                    .put("tag", PROXY_TAG)
-                    .put("server", "127.0.0.1")
-                    .put("server_port", chainSocksPort)
-                    .put("version", "5"),
-            )
-        } else if (proxy.protocol == Protocol.WIREGUARD) {
+        if (proxy.protocol == Protocol.WIREGUARD) {
             endpoints.put(buildWireGuardEndpoint(proxy))
         } else {
             outbounds.put(buildOutbound(proxy))

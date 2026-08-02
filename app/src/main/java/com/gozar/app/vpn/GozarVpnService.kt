@@ -11,11 +11,9 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import com.gozar.app.R
 import com.gozar.app.core.SingBoxConfig
-import com.gozar.app.core.XrayConfig
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
-import com.gozar.app.model.CoreType
 import com.gozar.app.model.ProxyConfig
 import com.gozar.app.net.LatencyTester
 import com.gozar.app.parser.ConfigParser
@@ -33,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.ServerSocket
 
 /**
  * Owns the tunnel.
@@ -53,7 +52,6 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
     private var platform: PlatformInterfaceImpl? = null
     private var commandServer: CommandServer? = null
-    private var xray: XrayRunner? = null
 
     private var currentSettings: Settings = Settings()
     private var startedAt: Long = 0
@@ -162,24 +160,10 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         setupLibbox(basePath, workingPath, tempPath)
 
-        var chainPort: Int? = null
-        if (settings.core == CoreType.XRAY) {
-            if (!proxy.protocol.supportedBy(CoreType.XRAY)) {
-                throw IllegalStateException(
-                    "${proxy.protocol.label} needs the sing-box core",
-                )
-            }
-            val port = XrayRunner.findFreePort()
-            val runner = XrayRunner(applicationContext)
-            runner.start(XrayConfig.build(proxy, port), port)
-            xray = runner
-            chainPort = port
-        }
-
-        val probePort = XrayRunner.findFreePort()
+        val probePort = findFreePort()
         localProxyPort = probePort
 
-        val configJson = SingBoxConfig.build(proxy, settings, chainPort, probePort)
+        val configJson = SingBoxConfig.build(proxy, settings, localProxyPort = probePort)
         Log.d(tag, "sing-box config:\n$configJson")
 
         val platformInterface = PlatformInterfaceImpl(this) { currentSettings }
@@ -195,6 +179,9 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         overrides.setExcludePackage(StringList(emptyList()))
         server.startOrReloadService(configJson, overrides)
     }
+
+    /** Asks the OS for a free loopback port for the core's local inbound. */
+    private fun findFreePort(): Int = ServerSocket(0).use { it.localPort }
 
     private fun setupLibbox(basePath: File, workingPath: File, tempPath: File) {
         if (libboxReady) return
@@ -223,9 +210,6 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         runCatching { commandServer?.close() }
             .onFailure { Log.w(tag, "close: ${it.message}") }
         commandServer = null
-
-        xray?.stop()
-        xray = null
 
         platform?.closeTun()
         platform = null

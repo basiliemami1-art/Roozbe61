@@ -1,6 +1,3 @@
-import java.io.FileOutputStream
-import java.net.URL
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -107,8 +104,9 @@ ksp {
 }
 
 dependencies {
-    // Native proxy cores. Both are produced/fetched by `:app:fetchCores` (see below)
-    // and by the CI workflow; they are intentionally not committed to the repo.
+    // The sing-box core, compiled by CI and intentionally not committed.
+    // Only one gomobile-generated AAR may be present: each bundles its own copy
+    // of the `go.*` runtime, so a second one collides on `go.Seq`.
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 
     implementation(libs.androidx.core.ktx)
@@ -140,39 +138,21 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 }
 
-/**
- * Downloads the Xray core AAR. The sing-box core (libbox.aar) has no official prebuilt
- * release, so CI compiles it from source with gomobile — see .github/workflows/build.yml.
- */
-val xrayCoreVersion = "v26.7.31"
-
-tasks.register("fetchCores") {
+tasks.register("checkCores") {
     group = "gozar"
-    description = "Downloads prebuilt native proxy cores into app/libs."
-    val libsDir = file("libs")
-    val xrayAar = File(libsDir, "libv2ray.aar")
-    outputs.file(xrayAar)
+    description = "Verifies the native proxy core is present in app/libs."
     doLast {
-        libsDir.mkdirs()
-        if (xrayAar.exists() && xrayAar.length() > 0) {
-            logger.lifecycle("libv2ray.aar already present, skipping.")
-        } else {
-            val url =
-                "https://github.com/2dust/AndroidLibXrayLite/releases/download/$xrayCoreVersion/libv2ray.aar"
-            logger.lifecycle("Downloading $url")
-            URL(url).openStream().use { input ->
-                FileOutputStream(xrayAar).use { output -> input.copyTo(output) }
-            }
-            logger.lifecycle("Saved ${xrayAar.absolutePath} (${xrayAar.length()} bytes)")
-        }
-        val singBox = File(libsDir, "libbox.aar")
+        val singBox = File(file("libs"), "libbox.aar")
         if (!singBox.exists()) {
             logger.warn(
-                "libbox.aar is missing. Build it with:\n" +
+                "libbox.aar is missing. sing-box publishes no prebuilt Android\n" +
+                    "artifact, so build it from the pinned tag:\n" +
                     "  git clone --depth 1 -b v1.13.15 https://github.com/SagerNet/sing-box\n" +
                     "  cd sing-box && make lib_install && make lib_android\n" +
                     "then copy libbox.aar into app/libs/"
             )
+        } else {
+            logger.lifecycle("libbox.aar present (${singBox.length()} bytes)")
         }
     }
 }

@@ -5,7 +5,6 @@ import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.data.SourceEntity
 import com.gozar.app.data.SourceSpec
-import com.gozar.app.model.CoreType
 import com.gozar.app.parser.Codecs
 import com.gozar.app.parser.ConfigParser
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +44,6 @@ class SourceFetcher(
     private val tag = "SourceFetcher"
 
     suspend fun refreshAll(
-        core: CoreType,
         onProgress: (RefreshProgress) -> Unit = {},
     ): RefreshResult = withContext(Dispatchers.IO) {
         val sources = db.sourceDao().enabled()
@@ -65,7 +63,7 @@ class SourceFetcher(
                     val limiter = if (source.isTelegram) telegramLimit else subscriptionLimit
                     limiter.withPermit {
                         if (source.isTelegram) delay(250) // be polite to t.me
-                        val outcome = runCatching { refreshOne(source, core) }
+                        val outcome = runCatching { refreshOne(source) }
                         val result = outcome.getOrNull()
                         if (result == null) {
                             failCount.incrementAndGet()
@@ -105,12 +103,11 @@ class SourceFetcher(
     }
 
     /** @return (newly inserted, total parsed) */
-    private suspend fun refreshOne(source: SourceEntity, core: CoreType): Pair<Int, Int> {
+    private suspend fun refreshOne(source: SourceEntity): Pair<Int, Int> {
         val body = download(resolveUrl(source))
         val text = if (Codecs.looksBase64(body)) Codecs.decodeBase64(body) ?: body else body
 
         val configs = ConfigParser.parseMany(text)
-            .filter { it.protocol.supportedBy(core) }
 
         if (configs.isEmpty()) {
             db.sourceDao().markUpdated(

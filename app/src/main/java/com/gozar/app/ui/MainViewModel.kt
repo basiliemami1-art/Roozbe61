@@ -13,7 +13,6 @@ import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
 import com.gozar.app.data.SourceEntity
 import com.gozar.app.data.ThemeMode
-import com.gozar.app.model.CoreType
 import com.gozar.app.net.LatencyTester
 import com.gozar.app.net.SourceFetcher
 import com.gozar.app.parser.ConfigParser
@@ -123,7 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _busy.value = BusyState.Refreshing(0, 1, "")
             val current = settingsRepository.current()
             val fetcher = SourceFetcher(database, current.maxServers)
-            val result = fetcher.refreshAll(current.core) { progress ->
+            val result = fetcher.refreshAll { progress ->
                 _busy.value = BusyState.Refreshing(
                     progress.done,
                     progress.total,
@@ -301,10 +300,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepository.setLanguage(tag)
             App.applyLanguage(tag)
         }
-    }
-
-    fun setCore(core: CoreType) {
-        viewModelScope.launch { settingsRepository.setCore(core) }
     }
 
     fun setBypassIran(value: Boolean) {

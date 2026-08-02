@@ -9,7 +9,6 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.gozar.app.model.CoreType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -23,7 +22,6 @@ enum class PerAppMode { OFF, INCLUDE, EXCLUDE }
 data class Settings(
     val language: String = "fa",
     val theme: ThemeMode = ThemeMode.SYSTEM,
-    val core: CoreType = CoreType.SING_BOX,
     val selectedServerId: Long = 0,
     val bypassIran: Boolean = true,
     val bypassLan: Boolean = true,
@@ -50,7 +48,6 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val LANGUAGE = stringPreferencesKey("language")
         val THEME = stringPreferencesKey("theme")
-        val CORE = stringPreferencesKey("core")
         val SELECTED_SERVER = longPreferencesKey("selected_server")
         val BYPASS_IRAN = booleanPreferencesKey("bypass_iran")
         val BYPASS_LAN = booleanPreferencesKey("bypass_lan")
@@ -80,7 +77,6 @@ class SettingsRepository(private val context: Context) {
         language = this[Keys.LANGUAGE] ?: "fa",
         theme = this[Keys.THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
             ?: ThemeMode.SYSTEM,
-        core = CoreType.fromId(this[Keys.CORE]),
         selectedServerId = this[Keys.SELECTED_SERVER] ?: 0,
         bypassIran = this[Keys.BYPASS_IRAN] ?: true,
         bypassLan = this[Keys.BYPASS_LAN] ?: true,
@@ -105,7 +101,6 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setLanguage(value: String) = put(Keys.LANGUAGE, value)
     suspend fun setTheme(value: ThemeMode) = put(Keys.THEME, value.name)
-    suspend fun setCore(value: CoreType) = put(Keys.CORE, value.id)
     suspend fun setSelectedServer(id: Long) = put(Keys.SELECTED_SERVER, id)
     suspend fun setBypassIran(value: Boolean) = put(Keys.BYPASS_IRAN, value)
     suspend fun setBypassLan(value: Boolean) = put(Keys.BYPASS_LAN, value)

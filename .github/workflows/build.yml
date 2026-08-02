@@ -14,8 +14,12 @@ env:
   # Pinned deliberately: the libbox PlatformInterface is an unstable API and the
   # Kotlin implementation in app/src/main/java/com/gozar/app/vpn is written
   # against exactly this tag. Bump both together.
+  #
+  # Exactly one gomobile-generated AAR may ship in the APK. Every one of them
+  # bundles the same unnamespaced `go.*` runtime and binds `go.Seq` to its own
+  # native library, so adding a second core collides on `go.Seq` at merge time
+  # and would leave one core's JNI unregistered even if the classes were merged.
   SING_BOX_VERSION: v1.13.15
-  XRAY_LIB_VERSION: v26.7.31
   GRADLE_VERSION: 8.11.1
   # sing-box links a prebuilt libcronet.a (pulled in by with_naive_outbound)
   # that carries relocations r27's ld.lld rejects with "unknown reloc", so the
@@ -116,14 +120,6 @@ jobs:
             echo "::error title=libbox build failed::${SNIPPET}"
             exit 1
           fi
-
-      - name: Fetch Xray core (libv2ray.aar)
-        run: |
-          set -euo pipefail
-          mkdir -p app/libs
-          curl -fSL -o app/libs/libv2ray.aar \
-            "https://github.com/2dust/AndroidLibXrayLite/releases/download/${XRAY_LIB_VERSION}/libv2ray.aar"
-          ls -lh app/libs/
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

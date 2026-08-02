@@ -30,7 +30,6 @@ import com.gozar.app.BuildConfig
 import com.gozar.app.R
 import com.gozar.app.data.PerAppMode
 import com.gozar.app.data.ThemeMode
-import com.gozar.app.model.CoreType
 import com.gozar.app.ui.components.GlassCard
 import com.gozar.app.ui.components.SectionHeader
 
@@ -82,27 +81,16 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
         SectionHeader(stringResource(R.string.settings_core))
         GlassCard(Modifier.padding(horizontal = 16.dp)) {
-            Column(Modifier.padding(vertical = 6.dp)) {
-                ChipRow(
-                    title = stringResource(R.string.settings_core),
-                    options = listOf(
-                        CoreType.SING_BOX to stringResource(R.string.core_singbox),
-                        CoreType.XRAY to stringResource(R.string.core_xray),
-                    ),
-                    selected = settings.core,
-                    onSelect = viewModel::setCore,
-                )
+            Column(Modifier.padding(16.dp)) {
                 Text(
-                    text = stringResource(
-                        if (settings.core == CoreType.SING_BOX) {
-                            R.string.core_singbox_desc
-                        } else {
-                            R.string.core_xray_desc
-                        },
-                    ),
+                    text = stringResource(R.string.core_singbox),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.core_singbox_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
         }
