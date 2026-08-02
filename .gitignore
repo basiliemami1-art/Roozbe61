@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+.idea/
+build/
+local.properties
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Native cores are fetched/built by CI, never committed.
+app/libs/*.aar
+app/libs/*.jar
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties

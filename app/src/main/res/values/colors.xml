@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_violet">#6C5CE7</color>
+    <color name="brand_cyan">#00D9A5</color>
+    <color name="window_light">#FFF7F6FC</color>
+    <color name="window_dark">#FF0B0B14</color>
+    <color name="ic_launcher_background">#0F0E1A</color>
+</resources>

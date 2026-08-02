@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Gozar</string>
+    <string name="app_tagline">Free internet, simply</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Connect</string>
+    <string name="nav_servers">Servers</string>
+    <string name="nav_subscriptions">Sources</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Connection -->
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_connected">Connected</string>
+    <string name="state_disconnected">Disconnected</string>
+    <string name="state_stopping">Stopping…</string>
+    <string name="tap_to_connect">Tap to connect</string>
+    <string name="tap_to_disconnect">Tap to disconnect</string>
+    <string name="no_server_selected">No server selected</string>
+    <string name="current_server">Active server</string>
+    <string name="upload">Upload</string>
+    <string name="download">Download</string>
+    <string name="duration">Uptime</string>
+    <string name="total_traffic">Total traffic</string>
+
+    <!-- Servers -->
+    <string name="servers_title">Servers</string>
+    <string name="search_servers">Search servers…</string>
+    <string name="no_servers">No servers yet</string>
+    <string name="no_servers_hint">Update your sources to pull in configs</string>
+    <string name="fetch_configs">Fetch configs</string>
+    <string name="test_all">Test all</string>
+    <string name="testing">Testing…</string>
+    <string name="sort_fastest">Fastest first</string>
+    <string name="filter_all">All</string>
+    <string name="filter_working">Working</string>
+    <string name="filter_favorite">Starred</string>
+    <string name="server_count">%1$d servers</string>
+    <string name="latency_ms">%1$d ms</string>
+    <string name="latency_timeout">No reply</string>
+    <string name="latency_untested">Untested</string>
+    <string name="select_fastest">Pick fastest</string>
+    <string name="delete_dead">Remove dead servers</string>
+    <string name="delete_all_servers">Remove all servers</string>
+    <string name="copy_link">Copy link</string>
+    <string name="share">Share</string>
+    <string name="mark_favorite">Star</string>
+    <string name="unmark_favorite">Unstar</string>
+
+    <!-- Subscriptions -->
+    <string name="subscriptions_title">Config sources</string>
+    <string name="add_subscription">Add source</string>
+    <string name="subscription_name">Name</string>
+    <string name="subscription_url">URL or Telegram channel</string>
+    <string name="subscription_url_hint">https://… or t.me/channel</string>
+    <string name="update_all_sources">Update all sources</string>
+    <string name="updating_sources">Updating sources…</string>
+    <string name="source_updated">%1$d new configs from %2$d sources</string>
+    <string name="last_updated">Last updated: %1$s</string>
+    <string name="never_updated">never</string>
+    <string name="configs_from_source">%1$d configs</string>
+    <string name="built_in_sources">Built-in sources</string>
+    <string name="custom_sources">Your sources</string>
+    <string name="restore_default_sources">Restore default sources</string>
+    <string name="import_from_clipboard">Import from clipboard</string>
+    <string name="import_success">Added %1$d configs</string>
+    <string name="import_nothing">No valid config found</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_general">General</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_fa">فارسی</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_system">Follow system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_core">Proxy core</string>
+    <string name="core_singbox">sing-box</string>
+    <string name="core_xray">Xray</string>
+    <string name="core_singbox_desc">Full support for VLESS, Reality, Hysteria2, TUIC and WireGuard</string>
+    <string name="core_xray_desc">Xray core for VMess, VLESS, Reality, Trojan and Shadowsocks</string>
+
+    <string name="settings_network">Network &amp; routing</string>
+    <string name="bypass_iran">Bypass Iranian sites</string>
+    <string name="bypass_iran_desc">Domestic traffic skips the tunnel</string>
+    <string name="bypass_lan">Bypass local network</string>
+    <string name="block_ads">Block ads and trackers</string>
+    <string name="remote_dns">Remote DNS</string>
+    <string name="direct_dns">Direct DNS</string>
+    <string name="ipv6_support">IPv6 support</string>
+    <string name="mtu">MTU</string>
+    <string name="tun_stack">Network stack</string>
+
+    <string name="settings_apps">Apps</string>
+    <string name="per_app_proxy">Per-app tunnelling</string>
+    <string name="per_app_mode_off">Tunnel every app</string>
+    <string name="per_app_mode_include">Only selected apps</string>
+    <string name="per_app_mode_exclude">All except selected apps</string>
+    <string name="selected_apps">%1$d apps selected</string>
+
+    <string name="settings_behavior">Behaviour</string>
+    <string name="auto_select_fastest">Auto-pick the fastest server</string>
+    <string name="auto_select_fastest_desc">Before connecting, the fastest healthy server is chosen</string>
+    <string name="auto_update_sources">Auto-update sources</string>
+    <string name="auto_update_desc">Pull fresh configs when the app opens</string>
+    <string name="connect_on_boot">Connect on boot</string>
+    <string name="auto_reconnect">Reconnect after a drop</string>
+    <string name="test_concurrency">Concurrent tests</string>
+    <string name="test_timeout">Test timeout (seconds)</string>
+
+    <string name="settings_about">About</string>
+    <string name="version">Version %1$s</string>
+    <string name="core_version">Core: %1$s</string>
+    <string name="about_body">Gozar is a free and open-source censorship-circumvention client. Configs are collected from public sources, and no data about you is collected or transmitted.</string>
+
+    <!-- Common -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="close">Close</string>
+    <string name="retry">Retry</string>
+    <string name="copied">Copied</string>
+    <string name="confirm_delete">Delete this?</string>
+    <string name="confirm_delete_all">Remove every server? This cannot be undone.</string>
+
+    <!-- Notifications / errors -->
+    <string name="notification_channel">Connection status</string>
+    <string name="notification_stop">Stop</string>
+    <string name="error_vpn_permission">VPN permission was denied</string>
+    <string name="error_no_server">Select a server first</string>
+    <string name="error_generic">Error: %1$s</string>
+    <string name="error_network">No internet connection</string>
+    <string name="core_missing">The %1$s core was not built into this APK</string>
+</resources>
