@@ -53,6 +53,12 @@ class PlatformInterfaceImpl(
     @Volatile
     private var reportedProtectFailure = false
 
+    @Volatile
+    private var reportedInterface = false
+
+    @Volatile
+    private var reportedInterfaceCount = false
+
     private val connectivity: ConnectivityManager
         get() = service.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -207,11 +213,23 @@ class PlatformInterfaceImpl(
             }
 
             private fun report(network: Network, capabilities: NetworkCapabilities?) {
-                val name = connectivity.getLinkProperties(network)?.interfaceName ?: return
-                val index = runCatching {
-                    java.net.NetworkInterface.getByName(name)?.index ?: -1
-                }.getOrDefault(-1)
-                if (index <= 0) return
+                val name = connectivity.getLinkProperties(network)?.interfaceName
+                if (name == null) {
+                    Diagnostics.log("default network has no interface name yet")
+                    return
+                }
+                val index = interfaceIndexOf(name)
+                if (index <= 0) {
+                    // libbox resolves the default interface by index against the
+                    // list from getInterfaces(); with no index it has nothing to
+                    // bind to and every dial fails immediately.
+                    Diagnostics.log("cannot resolve index for interface '$name'")
+                    return
+                }
+                if (!reportedInterface) {
+                    reportedInterface = true
+                    Diagnostics.log("default interface: $name (index $index)")
+                }
                 val caps = capabilities ?: connectivity.getNetworkCapabilities(network)
                 val expensive =
                     caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
@@ -291,7 +309,33 @@ class PlatformInterfaceImpl(
             boxInterface.setMetered(nif.name in meteredInterfaces)
             result.add(boxInterface)
         }
+        if (!reportedInterfaceCount || result.isEmpty()) {
+            reportedInterfaceCount = true
+            Diagnostics.log(
+                "interfaces enumerated: ${result.size}" +
+                    if (result.isEmpty()) " (none — the core cannot bind any dial)" else "",
+            )
+        }
         return NetworkInterfaceList(result)
+    }
+
+    /**
+     * `NetworkInterface.getByName` is the direct route, but it has been
+     * unreliable across Android versions, so a full scan is tried as a fallback
+     * before giving up.
+     */
+    private fun interfaceIndexOf(name: String): Int {
+        runCatching { java.net.NetworkInterface.getByName(name)?.index }
+            .getOrNull()
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+        return runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces()
+                ?.toList()
+                ?.firstOrNull { it.name == name }
+                ?.index
+                ?: -1
+        }.getOrDefault(-1)
     }
 
     /** Re-encodes java.net flags into the Linux IFF_* bits libbox expects. */

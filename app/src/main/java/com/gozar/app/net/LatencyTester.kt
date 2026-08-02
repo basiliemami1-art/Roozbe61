@@ -5,6 +5,7 @@ import com.gozar.app.data.Latency
 import com.gozar.app.data.LatencyResult
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.model.Protocol
+import com.gozar.app.vpn.Diagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -225,7 +226,9 @@ class LatencyTester(
          */
         suspend fun measureTunnelDelay(localProxyPort: Int): Int = withContext(Dispatchers.IO) {
             if (localProxyPort <= 0) return@withContext Latency.FAILED
-            val client = Http.client.newBuilder()
+            // A brand-new client: the shared one carries a connection pool whose
+            // reused connections would not go through this proxy.
+            val client = okhttp3.OkHttpClient.Builder()
                 .proxy(
                     java.net.Proxy(
                         java.net.Proxy.Type.SOCKS,
@@ -243,11 +246,22 @@ class LatencyTester(
             try {
                 val start = System.nanoTime()
                 client.newCall(request).execute().use { response ->
-                    if (response.code !in 200..399) return@withContext Latency.FAILED
+                    if (response.code !in 200..399) {
+                        Diagnostics.log("probe: unexpected HTTP ${response.code}")
+                        return@withContext Latency.FAILED
+                    }
                 }
                 ((System.nanoTime() - start) / 1_000_000L).toInt().coerceAtLeast(1)
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                // Swallowing this was why five rounds of debugging had nothing
+                // to go on: the reason a probe fails is the whole diagnosis.
+                Diagnostics.log(
+                    "probe failed: ${error.javaClass.simpleName}: ${error.message}",
+                )
                 Latency.FAILED
+            } finally {
+                runCatching { client.dispatcher.executorService.shutdown() }
+                runCatching { client.connectionPool.evictAll() }
             }
         }
     }
