@@ -17,6 +17,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,9 +25,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gozar.app.BuildConfig
@@ -235,16 +239,25 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    // Newest first: the last attempt is what matters.
-                    diagnostics.asReversed().take(25).forEach { line ->
-                        Text(
-                            text = line,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 1.dp),
-                        )
+                    // The log is English and machine-readable; forcing LTR keeps
+                    // "wlan0 (index 16)" from being reordered by the RTL layout.
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Column {
+                            // Newest first: the last attempt is what matters.
+                            diagnostics.asReversed().take(25).forEach { line ->
+                                Text(
+                                    text = line,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Start,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 1.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
