@@ -37,8 +37,8 @@ data class Settings(
     val autoUpdateSources: Boolean = true,
     val connectOnBoot: Boolean = false,
     val autoReconnect: Boolean = true,
-    val testConcurrency: Int = 24,
-    val testTimeoutSeconds: Int = 5,
+    val testConcurrency: Int = 64,
+    val testTimeoutSeconds: Int = 4,
     val maxServers: Int = 10_000,
     val onboarded: Boolean = false,
 )
@@ -93,8 +93,8 @@ class SettingsRepository(private val context: Context) {
         autoUpdateSources = this[Keys.AUTO_UPDATE] ?: true,
         connectOnBoot = this[Keys.CONNECT_ON_BOOT] ?: false,
         autoReconnect = this[Keys.AUTO_RECONNECT] ?: true,
-        testConcurrency = this[Keys.TEST_CONCURRENCY] ?: 24,
-        testTimeoutSeconds = this[Keys.TEST_TIMEOUT] ?: 5,
+        testConcurrency = this[Keys.TEST_CONCURRENCY] ?: 64,
+        testTimeoutSeconds = this[Keys.TEST_TIMEOUT] ?: 4,
         maxServers = this[Keys.MAX_SERVERS] ?: 10_000,
         onboarded = this[Keys.ONBOARDED] ?: false,
     )

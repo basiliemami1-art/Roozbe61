@@ -61,6 +61,10 @@ class PlatformInterfaceImpl(
     // ------------------------------------------------------------------ TUN
 
     override fun openTun(options: TunOptions): Int {
+        // A config reload opens a fresh TUN; the previous descriptor is ours to
+        // release, and leaking one per failover attempt would exhaust the fd
+        // table on a device that cycles through several dead servers.
+        closeTun()
         val settings = settingsProvider()
         val builder = service.Builder()
             .setSession("Gozar")

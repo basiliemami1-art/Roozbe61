@@ -204,14 +204,13 @@ object SingBoxConfig {
             )
         }
         if (settings.bypassIran) {
+            // Domain-based only. An IP-range list for Iran cannot be maintained
+            // accurately here, and a wrong entry silently sends real traffic
+            // outside the tunnel — the failure it causes looks exactly like a
+            // dead server, which makes it expensive to diagnose.
             rules.put(
                 JSONObject()
                     .put("domain_suffix", JSONArray(RoutingLists.iranDomainSuffixes))
-                    .put("outbound", DIRECT_TAG),
-            )
-            rules.put(
-                JSONObject()
-                    .put("ip_cidr", JSONArray(RoutingLists.iranIpCidrs))
                     .put("outbound", DIRECT_TAG),
             )
         }
@@ -219,8 +218,11 @@ object SingBoxConfig {
         val route = JSONObject()
             .put("rules", rules)
             .put("final", PROXY_TAG)
+            // Note: override_android_vpn is deliberately not set. Enabling it
+            // lets sing-box accept an Android VPN interface as upstream, which
+            // can bind the core's own sockets to our tun and loop the tunnel
+            // back into itself.
             .put("auto_detect_interface", true)
-            .put("override_android_vpn", true)
 
         val resolver = JSONObject().put("server", DNS_LOCAL_TAG)
         if (!settings.ipv6) resolver.put("strategy", "ipv4_only")

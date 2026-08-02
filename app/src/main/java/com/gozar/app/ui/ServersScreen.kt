@@ -1,10 +1,16 @@
 package com.gozar.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Search
@@ -23,40 +31,54 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gozar.app.R
 import com.gozar.app.data.ServerEntity
+import com.gozar.app.ui.components.Flags
 import com.gozar.app.ui.components.LatencyPill
 import com.gozar.app.ui.components.ProtocolChip
+import com.gozar.app.ui.components.latencyColor
 import com.gozar.app.ui.theme.Amber
+import com.gozar.app.ui.theme.Mint
 import com.gozar.app.ui.theme.Violet
+import com.gozar.app.vpn.ConnectionStatus
 
 @Composable
-fun ServersScreen(viewModel: MainViewModel) {
+fun ServersScreen(
+    viewModel: MainViewModel,
+    onRequestConnect: (serverId: Long) -> Unit,
+) {
     val servers by viewModel.servers.collectAsState()
     val search by viewModel.search.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val settings by viewModel.settings.collectAsState()
     val serverCount by viewModel.serverCount.collectAsState()
+    val workingCount by viewModel.workingCount.collectAsState()
+    val status by viewModel.status.collectAsState()
+    val activeId by viewModel.activeServerId.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -64,11 +86,11 @@ fun ServersScreen(viewModel: MainViewModel) {
             onValueChange = viewModel::setSearch,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             placeholder = { Text(stringResource(R.string.search_servers)) },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
         )
 
         Row(
@@ -76,6 +98,7 @@ fun ServersScreen(viewModel: MainViewModel) {
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             FilterChip(
                 selected = filter == ServerFilter.ALL,
@@ -105,11 +128,13 @@ fun ServersScreen(viewModel: MainViewModel) {
                 onClick = viewModel::refreshSources,
                 label = { Text(stringResource(R.string.fetch_configs)) },
                 leadingIcon = { Icon(Icons.Rounded.CloudDownload, null, Modifier.size(16.dp)) },
+                colors = AssistChipDefaults.assistChipColors(labelColor = Violet),
             )
             AssistChip(
                 onClick = viewModel::testAll,
                 label = { Text(stringResource(R.string.test_all)) },
                 leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(16.dp)) },
+                colors = AssistChipDefaults.assistChipColors(labelColor = Mint),
             )
             Spacer(Modifier.weight(1f))
             IconButton(onClick = viewModel::deleteDeadServers) {
@@ -119,28 +144,38 @@ fun ServersScreen(viewModel: MainViewModel) {
 
         AnimatedVisibility(visible = busy != null) {
             Column(Modifier.padding(horizontal = 16.dp)) {
-                val (label, fraction) = when (val state = busy) {
-                    is BusyState.Refreshing ->
-                        "${stringResource(R.string.updating_sources)} ${state.done}/${state.total}" to
-                            state.done.toFloat() / state.total.coerceAtLeast(1)
+                val label: String
+                val fraction: Float
+                when (val state = busy) {
+                    is BusyState.Refreshing -> {
+                        label = "${stringResource(R.string.updating_sources)}  ${state.done}/${state.total}"
+                        fraction = state.done.toFloat() / state.total.coerceAtLeast(1)
+                    }
 
-                    is BusyState.Testing ->
-                        "${stringResource(R.string.testing)} ${state.done}/${state.total} · ${state.alive} ✓" to
-                            state.done.toFloat() / state.total.coerceAtLeast(1)
+                    is BusyState.Testing -> {
+                        label = "${stringResource(R.string.testing)}  ${state.done}/${state.total}  ·  ${state.alive} ✓"
+                        fraction = state.done.toFloat() / state.total.coerceAtLeast(1)
+                    }
 
-                    null -> "" to 0f
+                    null -> {
+                        label = ""
+                        fraction = 0f
+                    }
                 }
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = { fraction.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
             }
         }
 
@@ -164,26 +199,26 @@ fun ServersScreen(viewModel: MainViewModel) {
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = 24.dp,
-                ),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
                     Text(
-                        text = stringResource(R.string.server_count, serverCount),
+                        text = stringResource(R.string.server_count, serverCount) +
+                            if (workingCount > 0) "   ·   $workingCount ✓" else "",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 4.dp),
+                        modifier = Modifier.padding(bottom = 2.dp),
                     )
                 }
                 items(servers, key = { it.id }) { server ->
+                    val isActive = server.id == activeId && status != ConnectionStatus.DISCONNECTED
                     ServerRow(
                         server = server,
                         selected = server.id == settings.selectedServerId,
-                        onClick = { viewModel.selectServer(server.id) },
+                        active = isActive,
+                        connecting = isActive && status == ConnectionStatus.CONNECTING,
+                        onClick = { onRequestConnect(server.id) },
                         onToggleFavorite = { viewModel.toggleFavorite(server.id) },
                     )
                 }
@@ -196,69 +231,121 @@ fun ServersScreen(viewModel: MainViewModel) {
 private fun ServerRow(
     server: ServerEntity,
     selected: Boolean,
+    active: Boolean,
+    connecting: Boolean,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
-    Card(
+    val accent = when {
+        active -> Mint
+        selected -> Violet
+        else -> latencyColor(server.latency)
+    }
+    val borderColor by animateColorAsState(
+        targetValue = if (active) Mint.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
+        animationSpec = tween(280),
+        label = "border",
+    )
+    val glow by animateFloatAsState(
+        targetValue = if (active) 0.12f else 0f,
+        animationSpec = tween(280),
+        label = "glow",
+    )
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                Violet.copy(alpha = 0.14f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = server.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        Box(
+            Modifier
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(accent.copy(alpha = glow), accent.copy(alpha = 0f)),
+                    ),
                 )
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    ProtocolChip(server.protocolEnum?.label ?: server.protocol)
+                .border(1.dp, borderColor, RoundedCornerShape(18.dp)),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 6.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // A thin accent rail reads faster than a background tint.
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (active || selected) accent else accent.copy(alpha = 0.35f)),
+                )
+                Spacer(Modifier.width(10.dp))
+
+                Flags.forName(server.name)?.let { flag ->
+                    Text(text = flag, fontSize = 20.sp)
+                    Spacer(Modifier.width(10.dp))
+                }
+
+                Column(Modifier.weight(1f)) {
                     Text(
-                        text = server.address,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = Flags.stripFlag(server.name),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (active || selected) FontWeight.SemiBold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ProtocolChip(server.protocolEnum?.label ?: server.protocol)
+                        Text(
+                            text = server.address,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(8.dp))
+
+                when {
+                    connecting -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = Mint,
+                    )
+
+                    active -> Icon(
+                        Icons.Rounded.Bolt,
+                        contentDescription = stringResource(R.string.state_connected),
+                        tint = Mint,
+                        modifier = Modifier.size(20.dp),
+                    )
+
+                    else -> LatencyPill(
+                        latency = server.latency,
+                        untestedLabel = stringResource(R.string.latency_untested),
+                        timeoutLabel = stringResource(R.string.latency_timeout),
                     )
                 }
-            }
 
-            LatencyPill(
-                latency = server.latency,
-                untestedLabel = stringResource(R.string.latency_untested),
-                timeoutLabel = stringResource(R.string.latency_timeout),
-            )
-
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (server.favorite) {
-                        Icons.Rounded.Star
-                    } else {
-                        Icons.Rounded.StarBorder
-                    },
-                    contentDescription = stringResource(
-                        if (server.favorite) R.string.unmark_favorite else R.string.mark_favorite,
-                    ),
-                    tint = if (server.favorite) Amber else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                IconButton(onClick = onToggleFavorite, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        imageVector = if (server.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                        contentDescription = stringResource(
+                            if (server.favorite) R.string.unmark_favorite else R.string.mark_favorite,
+                        ),
+                        tint = if (server.favorite) Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
     }

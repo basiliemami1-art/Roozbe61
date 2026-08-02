@@ -134,6 +134,9 @@
     <string name="notification_stop">Stop</string>
     <string name="error_vpn_permission">VPN permission was denied</string>
     <string name="error_no_server">Select a server first</string>
+    <string name="trying_server">Trying server %1$d of %2$d — %3$s</string>
+    <string name="error_all_failed">None of the %1$d servers tried carried any traffic</string>
+    <string name="verifying">Checking that traffic flows…</string>
     <string name="error_generic">Error: %1$s</string>
     <string name="error_network">No internet connection</string>
     <string name="core_missing">The %1$s core was not built into this APK</string>

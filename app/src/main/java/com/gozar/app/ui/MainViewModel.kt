@@ -52,6 +52,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val status = VpnState.status
     val stats = VpnState.stats
     val vpnError = VpnState.lastError
+    val activeServerId = VpnState.activeServerId
+    val connectProgress = VpnState.progress
 
     private val _search = MutableStateFlow("")
     val search: StateFlow<String> = _search.asStateFlow()
@@ -270,15 +272,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------ Connection
 
-    /** @return true when a server was available and the service was asked to start. */
-    fun connect(): Boolean {
-        val selected = settings.value.selectedServerId
-        val hasAny = serverCount.value > 0
-        if (selected == 0L && !hasAny) {
+    /**
+     * @param serverId the server to start with, or 0 to let the service pick.
+     * @return true when a server was available and the service was asked to start.
+     */
+    fun connect(serverId: Long = 0): Boolean {
+        val target = if (serverId > 0) serverId else settings.value.selectedServerId
+        if (target == 0L && serverCount.value == 0) {
             emitToast(getApplication<Application>().getString(com.gozar.app.R.string.error_no_server))
             return false
         }
-        GozarVpnService.start(getApplication(), selected)
+        if (serverId > 0) selectServer(serverId)
+        GozarVpnService.start(getApplication(), target)
         return true
     }
 

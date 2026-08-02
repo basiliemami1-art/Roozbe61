@@ -2,13 +2,16 @@ package com.gozar.app.net
 
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.Latency
+import com.gozar.app.data.LatencyResult
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.model.Protocol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -41,7 +44,7 @@ class LatencyTester(
     private val dnsCache = ConcurrentHashMap<String, InetAddress?>()
 
     suspend fun testAll(
-        limit: Int = 4_000,
+        limit: Int = 2_000,
         onProgress: (TestProgress) -> Unit = {},
     ): Int = withContext(Dispatchers.IO) {
         val candidates = db.serverDao().testCandidates(limit)
@@ -51,25 +54,54 @@ class LatencyTester(
         val done = AtomicInteger(0)
         val alive = AtomicInteger(0)
 
+        // Results are buffered and flushed in batches. Writing each row as its
+        // own transaction would invalidate every observed query thousands of
+        // times over, which is what made the UI lock up during a sweep.
+        val pending = ArrayList<LatencyResult>(FLUSH_SIZE)
+        val pendingLock = Mutex()
+        var lastProgressAt = 0L
+
+        suspend fun flush(force: Boolean) {
+            val batch = pendingLock.withLock {
+                if (pending.size < FLUSH_SIZE && !force) return
+                val copy = ArrayList(pending)
+                pending.clear()
+                copy
+            }
+            if (batch.isNotEmpty()) db.serverDao().updateLatencies(batch)
+        }
+
         coroutineScope {
             candidates.map { server ->
                 async {
                     gate.withPermit {
                         val latency = probe(server)
-                        db.serverDao().updateLatency(
-                            id = server.id,
-                            latency = latency,
-                            weight = ServerEntity.weightFor(latency),
-                            time = System.currentTimeMillis(),
-                        )
                         if (latency > 0) alive.incrementAndGet()
-                        onProgress(
-                            TestProgress(done.incrementAndGet(), candidates.size, alive.get()),
-                        )
+                        pendingLock.withLock {
+                            pending.add(
+                                LatencyResult(
+                                    server.id,
+                                    latency,
+                                    ServerEntity.weightFor(latency),
+                                ),
+                            )
+                        }
+                        flush(force = false)
+
+                        val completed = done.incrementAndGet()
+                        val now = System.currentTimeMillis()
+                        // Throttle UI updates: one per frame budget is plenty.
+                        if (now - lastProgressAt >= PROGRESS_INTERVAL_MS ||
+                            completed == candidates.size
+                        ) {
+                            lastProgressAt = now
+                            onProgress(TestProgress(completed, candidates.size, alive.get()))
+                        }
                     }
                 }
             }.awaitAll()
         }
+        flush(force = true)
         alive.get()
     }
 
@@ -128,6 +160,12 @@ class LatencyTester(
     }
 
     companion object {
+        /** Rows buffered before a batched write. */
+        private const val FLUSH_SIZE = 150
+
+        /** Minimum gap between progress callbacks, in milliseconds. */
+        private const val PROGRESS_INTERVAL_MS = 120L
+
         /**
          * Added to UDP-protocol results so an unmeasurable endpoint never wins the
          * "fastest" slot over a server whose RTT we actually observed.

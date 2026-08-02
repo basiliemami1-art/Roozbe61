@@ -33,8 +33,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gozar.app.R
 import com.gozar.app.ui.components.ConnectButton
+import com.gozar.app.ui.components.Flags
 import com.gozar.app.ui.components.GlassCard
 import com.gozar.app.ui.components.LatencyPill
 import com.gozar.app.ui.components.ProtocolChip
@@ -50,11 +52,12 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
-    onRequestConnect: () -> Unit,
+    onRequestConnect: (serverId: Long) -> Unit,
 ) {
     val status by viewModel.status.collectAsState()
     val stats by viewModel.stats.collectAsState()
     val activeServer by viewModel.activeServer.collectAsState()
+    val connectProgress by viewModel.connectProgress.collectAsState()
     val serverCount by viewModel.serverCount.collectAsState()
     val workingCount by viewModel.workingCount.collectAsState()
 
@@ -99,7 +102,7 @@ fun HomeScreen(
                 ) {
                     viewModel.disconnect()
                 } else {
-                    onRequestConnect()
+                    onRequestConnect(0)
                 }
             },
         )
@@ -120,16 +123,23 @@ fun HomeScreen(
                 else -> Violet
             },
         )
+        // While connecting, the failover loop reports which candidate it is on.
+        // Silence here is what made a dead server feel like a frozen app.
+        val subtitle = connectProgress ?: stringResource(
+            if (status == ConnectionStatus.CONNECTED) {
+                R.string.tap_to_disconnect
+            } else {
+                R.string.tap_to_connect
+            },
+        )
         Text(
-            text = stringResource(
-                if (status == ConnectionStatus.CONNECTED) {
-                    R.string.tap_to_disconnect
-                } else {
-                    R.string.tap_to_connect
-                },
-            ),
+            text = subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
 
         Spacer(Modifier.height(22.dp))
@@ -166,12 +176,18 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    Text(
-                        text = server.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Flags.forName(server.name)?.let { flag ->
+                            Text(text = flag, fontSize = 22.sp)
+                            Spacer(Modifier.size(10.dp))
+                        }
+                        Text(
+                            text = Flags.stripFlag(server.name),
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

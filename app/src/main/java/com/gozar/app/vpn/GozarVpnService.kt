@@ -12,9 +12,10 @@ import androidx.core.app.ServiceCompat
 import com.gozar.app.R
 import com.gozar.app.core.SingBoxConfig
 import com.gozar.app.data.GozarDatabase
+import com.gozar.app.data.Latency
+import com.gozar.app.data.ServerEntity
 import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
-import com.gozar.app.model.ProxyConfig
 import com.gozar.app.net.LatencyTester
 import com.gozar.app.parser.ConfigParser
 import io.nekohasekai.libbox.CommandServer
@@ -123,19 +124,12 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                     return@launch
                 }
 
-                val server = resolveServer(requestedServerId, settings)
-                    ?: throw IllegalStateException(getString(R.string.error_no_server))
-
-                val proxy = ConfigParser.parse(server.raw)
-                    ?: throw IllegalStateException("Could not parse the selected config")
-
-                VpnState.setActiveServer(server.id)
-                launchCores(proxy, settings)
-
+                val connected = connectWithFailover(requestedServerId, settings)
                 startedAt = System.currentTimeMillis()
                 VpnState.setStatus(ConnectionStatus.CONNECTED)
-                notifications.update(getString(R.string.state_connected), proxy.name)
-                monitorTraffic(proxy.name)
+                VpnState.setProgress(null)
+                notifications.update(getString(R.string.state_connected), connected.name)
+                monitorTraffic(connected.name)
             } catch (error: Throwable) {
                 Log.e(tag, "start failed", error)
                 VpnState.setError(error.message ?: error.javaClass.simpleName)
@@ -144,27 +138,118 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         }
     }
 
-    private suspend fun resolveServer(requestedServerId: Long, settings: Settings) =
-        when {
-            requestedServerId > 0 -> database.serverDao().byId(requestedServerId)
-            settings.autoSelectFastest -> database.serverDao().fastest()
-                ?: database.serverDao().byId(settings.selectedServerId)
-            else -> database.serverDao().byId(settings.selectedServerId)
-                ?: database.serverDao().fastest()
+    /**
+     * Brings the tunnel up and proves it actually carries traffic.
+     *
+     * A TCP handshake probe — which is all the bulk server test can afford —
+     * only shows that something is listening. Plenty of scraped configs accept
+     * a connection and then fail at TLS or authentication, which surfaces as
+     * "connected, but nothing loads". So each candidate is verified with a real
+     * request through the core's loopback inbound, and a failure moves on to
+     * the next one via `startOrReloadService`, reusing the same TUN.
+     *
+     * @return the server that verified successfully.
+     */
+    private suspend fun connectWithFailover(
+        requestedServerId: Long,
+        settings: Settings,
+    ): ServerEntity {
+        val candidates = candidateServers(requestedServerId, settings)
+        if (candidates.isEmpty()) {
+            throw IllegalStateException(getString(R.string.error_no_server))
         }
-
-    private fun launchCores(proxy: ProxyConfig, settings: Settings) {
-        val basePath = filesDir
-        val workingPath = File(filesDir, "work").also { it.mkdirs() }
-        val tempPath = File(cacheDir, "box").also { it.mkdirs() }
-
-        setupLibbox(basePath, workingPath, tempPath)
 
         val probePort = findFreePort()
         localProxyPort = probePort
+        prepareCore()
 
-        val configJson = SingBoxConfig.build(proxy, settings, localProxyPort = probePort)
-        Log.d(tag, "sing-box config:\n$configJson")
+        var lastError: String? = null
+        for ((index, server) in candidates.withIndex()) {
+            val proxy = ConfigParser.parse(server.raw)
+            if (proxy == null) {
+                lastError = "unparseable config"
+                continue
+            }
+
+            VpnState.setActiveServer(server.id)
+            VpnState.setProgress(
+                getString(R.string.trying_server, index + 1, candidates.size, server.name),
+            )
+            notifications.update(getString(R.string.state_connecting), server.name)
+
+            try {
+                applyConfig(SingBoxConfig.build(proxy, settings, probePort))
+            } catch (error: Throwable) {
+                Log.w(tag, "config rejected for ${server.name}: ${error.message}")
+                lastError = error.message
+                markServerFailed(server)
+                continue
+            }
+
+            // Give the inbound a moment to bind before probing through it.
+            delay(700)
+            val delayMs = LatencyTester.measureTunnelDelay(probePort)
+            if (delayMs > 0) {
+                Log.i(tag, "verified ${server.name} at ${delayMs}ms")
+                database.serverDao().updateLatency(
+                    id = server.id,
+                    latency = delayMs,
+                    weight = ServerEntity.weightFor(delayMs),
+                    time = System.currentTimeMillis(),
+                )
+                VpnState.setStats(VpnState.stats.value.copy(delayMs = delayMs))
+                settingsRepository.setSelectedServer(server.id)
+                return server
+            }
+
+            Log.w(tag, "${server.name} came up but carried no traffic")
+            lastError = "no traffic"
+            markServerFailed(server)
+        }
+
+        throw IllegalStateException(
+            getString(R.string.error_all_failed, candidates.size) +
+                (lastError?.let { " ($it)" } ?: ""),
+        )
+    }
+
+    private suspend fun markServerFailed(server: ServerEntity) {
+        database.serverDao().updateLatency(
+            id = server.id,
+            latency = Latency.FAILED,
+            weight = ServerEntity.weightFor(Latency.FAILED),
+            time = System.currentTimeMillis(),
+        )
+    }
+
+    /**
+     * The server to try first, followed by the next best alternatives so a dead
+     * config does not strand the user on a connect button that does nothing.
+     */
+    private suspend fun candidateServers(
+        requestedServerId: Long,
+        settings: Settings,
+    ): List<ServerEntity> {
+        val dao = database.serverDao()
+        val preferredId = when {
+            requestedServerId > 0 -> requestedServerId
+            !settings.autoSelectFastest -> settings.selectedServerId
+            else -> 0L
+        }
+        val preferred = if (preferredId > 0) dao.byId(preferredId) else null
+        val alternatives = dao.best(MAX_CONNECT_ATTEMPTS)
+        return (listOfNotNull(preferred) + alternatives)
+            .distinctBy { it.id }
+            .take(MAX_CONNECT_ATTEMPTS)
+    }
+
+    /** One-time core setup; the command server outlives individual configs. */
+    private fun prepareCore() {
+        if (commandServer != null) return
+        val basePath = filesDir
+        val workingPath = File(filesDir, "work").also { it.mkdirs() }
+        val tempPath = File(cacheDir, "box").also { it.mkdirs() }
+        setupLibbox(basePath, workingPath, tempPath)
 
         val platformInterface = PlatformInterfaceImpl(this) { currentSettings }
         platform = platformInterface
@@ -172,7 +257,12 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         val server = Libbox.newCommandServer(this, platformInterface)
         server.start()
         commandServer = server
+    }
 
+    /** Swaps the running configuration without tearing the tunnel down. */
+    private fun applyConfig(configJson: String) {
+        val server = commandServer ?: error("command server is not running")
+        Log.d(tag, "sing-box config:\n$configJson")
         val overrides = OverrideOptions()
         overrides.setAutoRedirect(false)
         overrides.setIncludePackage(StringList(emptyList()))
@@ -297,6 +387,9 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         const val ACTION_START = "com.gozar.app.START"
         const val ACTION_STOP = "com.gozar.app.STOP"
         const val EXTRA_SERVER_ID = "server_id"
+
+        /** How many servers to try before giving up on a connect request. */
+        private const val MAX_CONNECT_ATTEMPTS = 6
 
         @Volatile
         private var libboxReady = false

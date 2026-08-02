@@ -35,6 +35,10 @@ object VpnState {
     private val _activeServerId = MutableStateFlow(0L)
     val activeServerId: StateFlow<Long> = _activeServerId.asStateFlow()
 
+    /** Human-readable detail while connecting, e.g. which candidate is being tried. */
+    private val _progress = MutableStateFlow<String?>(null)
+    val progress: StateFlow<String?> = _progress.asStateFlow()
+
     val isRunning: Boolean
         get() = _status.value == ConnectionStatus.CONNECTED ||
             _status.value == ConnectionStatus.CONNECTING
@@ -44,7 +48,12 @@ object VpnState {
         if (status == ConnectionStatus.DISCONNECTED) {
             _stats.value = TunnelStats()
             _activeServerId.value = 0
+            _progress.value = null
         }
+    }
+
+    fun setProgress(message: String?) {
+        _progress.value = message
     }
 
     fun setStats(stats: TunnelStats) {

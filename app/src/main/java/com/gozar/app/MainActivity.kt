@@ -20,13 +20,17 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var viewModel: MainViewModel
 
+    /** Survives the permission round trip so a tapped server is not lost. */
+    private var pendingServerId: Long = 0
+
     private val vpnPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                viewModel.connect()
+                viewModel.connect(pendingServerId)
             } else {
                 viewModel.emitToast(getString(R.string.error_vpn_permission))
             }
+            pendingServerId = 0
         }
 
     private val notificationPermissionLauncher =
@@ -60,13 +64,17 @@ class MainActivity : AppCompatActivity() {
     /**
      * Asks for the VPN grant if we do not already hold it; [MainViewModel.connect]
      * runs either way once the user has answered.
+     *
+     * @param serverId the tapped server, or 0 to let the service choose.
      */
-    private fun requestConnect() {
+    private fun requestConnect(serverId: Long) {
+        pendingServerId = serverId
         val prepareIntent = VpnService.prepare(this)
         if (prepareIntent != null) {
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
-            viewModel.connect()
+            viewModel.connect(serverId)
+            pendingServerId = 0
         }
     }
 

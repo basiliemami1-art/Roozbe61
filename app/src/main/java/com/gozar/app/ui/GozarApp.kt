@@ -42,7 +42,7 @@ private enum class Tab { HOME, SERVERS, SOURCES, SETTINGS }
 @Composable
 fun GozarApp(
     viewModel: MainViewModel,
-    onRequestConnect: () -> Unit,
+    onRequestConnect: (serverId: Long) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     val snackbarHost = remember { SnackbarHostState() }
@@ -116,7 +116,7 @@ fun GozarApp(
             ) { current ->
                 when (current) {
                     Tab.HOME -> HomeScreen(viewModel, onRequestConnect)
-                    Tab.SERVERS -> ServersScreen(viewModel)
+                    Tab.SERVERS -> ServersScreen(viewModel, onRequestConnect)
                     Tab.SOURCES -> SourcesScreen(viewModel)
                     Tab.SETTINGS -> SettingsScreen(viewModel)
                 }

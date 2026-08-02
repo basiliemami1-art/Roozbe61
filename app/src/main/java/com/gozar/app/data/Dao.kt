@@ -4,8 +4,12 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+
+/** One server's measured latency, used for batched writes. */
+data class LatencyResult(val id: Long, val latency: Int, val weight: Int)
 
 @Dao
 interface SourceDao {
@@ -96,6 +100,21 @@ interface ServerDao {
 
     @Query("UPDATE servers SET latency = :latency, sortWeight = :weight, lastTested = :time WHERE id = :id")
     suspend fun updateLatency(id: Long, latency: Int, weight: Int, time: Long)
+
+    /**
+     * Writes a whole batch in one transaction.
+     *
+     * Room's invalidation tracker fires once per committed transaction, so
+     * batching is what keeps a sweep of a few thousand servers from re-running
+     * every observed query — and re-composing the list — thousands of times.
+     */
+    @Transaction
+    suspend fun updateLatencies(results: List<LatencyResult>) {
+        val now = System.currentTimeMillis()
+        for (result in results) {
+            updateLatency(result.id, result.latency, result.weight, now)
+        }
+    }
 
     @Query("UPDATE servers SET favorite = NOT favorite WHERE id = :id")
     suspend fun toggleFavorite(id: Long)

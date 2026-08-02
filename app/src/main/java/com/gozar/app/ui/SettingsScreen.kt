@@ -196,13 +196,13 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 )
                 ChipRow(
                     title = stringResource(R.string.test_concurrency),
-                    options = listOf(8 to "8", 16 to "16", 24 to "24", 48 to "48"),
+                    options = listOf(16 to "16", 32 to "32", 64 to "64", 96 to "96"),
                     selected = settings.testConcurrency,
                     onSelect = viewModel::setTestConcurrency,
                 )
                 ChipRow(
                     title = stringResource(R.string.test_timeout),
-                    options = listOf(3 to "3", 5 to "5", 8 to "8", 12 to "12"),
+                    options = listOf(2 to "2", 4 to "4", 6 to "6", 10 to "10"),
                     selected = settings.testTimeoutSeconds,
                     onSelect = viewModel::setTestTimeout,
                 )
