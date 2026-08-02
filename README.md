@@ -17,7 +17,7 @@
 - **مرتب‌سازی سریع‌ترین‌ها بالا**: تست هم‌زمان هزاران سرور و انتخاب خودکار بهترین.
 - **مسیریابی هوشمند**: عبور مستقیم سایت‌های ایرانی و شبکه‌ی محلی، مسدودسازی
   اختیاری تبلیغات، تونل بر پایه‌ی برنامه.
-- **رابط فارسی راست‌چین** با تم روشن/تیره و امکان سوییچ به انگلیسی.
+- **رابط فارسی راست‌چین** با فونت وزیرمتن، تم روشن/تیره و امکان سوییچ به انگلیسی.
 - بدون حساب کاربری، بدون تله‌متری، بدون تبلیغات.
 
 ## گرفتن APK
@@ -142,6 +142,17 @@ the first CI run is the compiler. These pieces were checked directly:
   the plugin and never connect.
 - SSR is not supported by either core and is skipped during import.
 
+### Signing
+
+Release builds are signed with the committed development key in `signing/`, so
+that updates install over an existing app instead of forcing an uninstall that
+would discard the user's servers and settings. CI prefers a private keystore
+whenever the `KEYSTORE_BASE64` secret is set. The trade-off, and how to switch,
+is written up in [`signing/README.md`](signing/README.md).
+
 ### Licence
 
-GPL-3.0, inherited from sing-box and Xray.
+GPL-3.0, inherited from sing-box.
+
+The bundled Vazirmatn font is © the Vazirmatn Project Authors, licensed under
+the SIL Open Font License 1.1 — see [`licenses/Vazirmatn-OFL.txt`](licenses/Vazirmatn-OFL.txt).

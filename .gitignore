@@ -12,7 +12,9 @@ captures/
 app/libs/*.aar
 app/libs/*.jar
 
-# Signing material
+# Signing material. signing/dev-signing.jks is deliberately tracked — see
+# signing/README.md; any other keystore is private and must never be committed.
 *.jks
 *.keystore
+!signing/dev-signing.jks
 keystore.properties

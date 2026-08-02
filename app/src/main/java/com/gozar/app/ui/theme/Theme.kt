@@ -3,7 +3,6 @@ package com.gozar.app.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -11,9 +10,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.gozar.app.data.ThemeMode
 
@@ -66,24 +62,6 @@ private val LightColors = lightColorScheme(
     outline = Color(0xFFD5D2E4),
     outlineVariant = Color(0xFFE7E4F1),
     error = Color(0xFFD93F63),
-)
-
-private val GozarTypography = Typography().let { base ->
-    base.copy(
-        displaySmall = base.displaySmall.copy(fontWeight = FontWeight.Bold),
-        headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.Bold),
-        titleLarge = base.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-        titleMedium = base.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        labelLarge = base.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-        bodyMedium = base.bodyMedium.copy(lineHeight = 22.sp),
-    )
-}
-
-/** Tabular-ish style for counters that update every second. */
-val MonoNumber = TextStyle(
-    fontWeight = FontWeight.Bold,
-    fontSize = 22.sp,
-    letterSpacing = 0.sp,
 )
 
 @Composable

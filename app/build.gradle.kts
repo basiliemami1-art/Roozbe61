@@ -23,13 +23,23 @@ android {
 
     signingConfigs {
         create("release") {
-            // CI injects a keystore via env vars; falls back to the debug key locally.
-            val storePath = System.getenv("KEYSTORE_PATH")
-            if (storePath != null && file(storePath).exists()) {
-                storeFile = file(storePath)
+            // A private keystore injected by CI wins. Without one, the committed
+            // development key is used so that the signature stays constant across
+            // builds — Android refuses to update an app whose signature changed,
+            // and a rotating key means every update wipes the user's servers and
+            // settings. See signing/README.md for the trade-off and how to move
+            // to a private key.
+            val injectedStore = System.getenv("KEYSTORE_PATH")?.let { file(it) }
+            if (injectedStore != null && injectedStore.exists()) {
+                storeFile = injectedStore
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                storeFile = rootProject.file("signing/dev-signing.jks")
+                storePassword = "gozar-dev-key"
+                keyAlias = "gozar"
+                keyPassword = "gozar-dev-key"
             }
         }
     }
@@ -39,11 +49,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (System.getenv("KEYSTORE_PATH") != null) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
