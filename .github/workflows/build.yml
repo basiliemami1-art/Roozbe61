@@ -17,6 +17,8 @@ env:
   SING_BOX_VERSION: v1.13.15
   XRAY_LIB_VERSION: v26.7.31
   GRADLE_VERSION: 8.11.1
+  # gomobile is picky about NDK layout; r27 is the last line it is known good on.
+  NDK_VERSION: 27.2.12479018
 
 jobs:
   build:
@@ -40,14 +42,21 @@ jobs:
         run: |
           set -eo pipefail
           sdkmanager --install "platforms;android-35" "build-tools;35.0.0" > /dev/null
-          # Pinning an exact NDK build number breaks whenever the runner image
-          # rotates, so try a known-good one and fall back to whatever is there.
-          sdkmanager --install "ndk;27.2.12479018" > /dev/null || true
-          NDK_DIR="$(ls -d "$ANDROID_SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -1)"
+          sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null || true
+          # Deliberately prefer the pinned NDK over anything newer that the
+          # runner image ships: gomobile breaks on NDK layout changes, so
+          # "whatever is highest" is the wrong choice here.
+          if [ -d "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" ]; then
+            NDK_DIR="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+          else
+            NDK_DIR="$(ls -d "$ANDROID_SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -1)"
+            echo "::warning::Pinned NDK $NDK_VERSION unavailable, falling back to $NDK_DIR"
+          fi
           if [ -z "$NDK_DIR" ]; then
             echo "::error::No Android NDK found; gomobile cannot build libbox."
             exit 1
           fi
+          echo "Available NDKs: $(ls "$ANDROID_SDK_ROOT/ndk" | tr '\n' ' ')"
           echo "Using NDK at $NDK_DIR"
           echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
@@ -71,16 +80,36 @@ jobs:
       - name: Build sing-box core (libbox.aar)
         if: steps.cache-libbox.outputs.cache-hit != 'true'
         run: |
-          set -euo pipefail
-          git clone --depth 1 --branch "$SING_BOX_VERSION" https://github.com/SagerNet/sing-box.git /tmp/sing-box
-          cd /tmp/sing-box
-          make lib_install
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          gomobile init || true
-          make lib_android
-          mkdir -p "$GITHUB_WORKSPACE/app/libs"
-          cp libbox.aar "$GITHUB_WORKSPACE/app/libs/libbox.aar"
-          ls -lh "$GITHUB_WORKSPACE/app/libs/"
+          set -o pipefail
+          echo "go:  $(go version)"
+          echo "ndk: $ANDROID_NDK_HOME"
+          echo "sdk: $ANDROID_SDK_ROOT"
+          echo "disk: $(df -h / | tail -1)"
+
+          # The whole build is captured so a failure can be reported as a check
+          # annotation. Annotations are readable on a public repo without admin
+          # rights, unlike the raw job log.
+          build() {
+            set -e
+            git clone --depth 1 --branch "$SING_BOX_VERSION" \
+              https://github.com/SagerNet/sing-box.git /tmp/sing-box
+            cd /tmp/sing-box
+            make lib_install
+            export PATH="$PATH:$(go env GOPATH)/bin"
+            gomobile version || true
+            gomobile init || true
+            make lib_android
+          }
+
+          if build 2>&1 | tee /tmp/libbox-build.log; then
+            mkdir -p "$GITHUB_WORKSPACE/app/libs"
+            cp /tmp/sing-box/libbox.aar "$GITHUB_WORKSPACE/app/libs/libbox.aar"
+            ls -lh "$GITHUB_WORKSPACE/app/libs/"
+          else
+            SNIPPET="$(tail -40 /tmp/libbox-build.log | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=libbox build failed::${SNIPPET}"
+            exit 1
+          fi
 
       - name: Fetch Xray core (libv2ray.aar)
         run: |
