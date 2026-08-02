@@ -5,21 +5,22 @@ import com.gozar.app.data.Latency
 import com.gozar.app.data.LatencyResult
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.model.Protocol
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -31,78 +32,113 @@ data class TestProgress(val done: Int, val total: Int, val alive: Int)
  * The sweep is a TCP handshake probe, which is what makes testing thousands of
  * endpoints practical: it needs no proxy core and finishes in seconds. It
  * measures reachability and round-trip time to the endpoint — not end-to-end
- * throughput — so it is a ranking signal, not a bandwidth benchmark. The real
- * end-to-end delay of the *connected* server is measured separately by
- * [measureTunnelDelay], which goes through the live tunnel.
+ * throughput, and not whether the proxy will actually authenticate. Real
+ * end-to-end verification happens at connect time in
+ * `GozarVpnService.connectWithFailover`.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class LatencyTester(
     private val db: GozarDatabase,
-    private val concurrency: Int = 24,
-    private val timeoutMs: Int = 5_000,
+    private val concurrency: Int = 64,
+    private val timeoutMs: Int = 4_000,
 ) {
 
-    private val dnsCache = ConcurrentHashMap<String, InetAddress?>()
+    private val parallelism = concurrency.coerceIn(1, 128)
+
+    /**
+     * A private slice of the IO pool. Sharing `Dispatchers.IO` would let a sweep
+     * of thousands of blocking socket connects starve every other IO user in the
+     * app — including the queries that keep the list on screen responsive.
+     */
+    private val probeDispatcher = Dispatchers.IO.limitedParallelism(parallelism)
+
+    private val resolved = ConcurrentHashMap<String, InetAddress>()
+    private val unresolvable = ConcurrentHashMap<String, Boolean>()
+
+    /**
+     * `InetAddress.getByName` has no timeout and is not interruptible, so it
+     * runs on its own bounded pool. A hung lookup parks one of these threads
+     * instead of a probe coroutine.
+     */
+    private val resolverPool = Executors.newFixedThreadPool(RESOLVER_THREADS) { runnable ->
+        Thread(runnable, "gozar-dns").apply { isDaemon = true }
+    }
 
     suspend fun testAll(
         limit: Int = 2_000,
         onProgress: (TestProgress) -> Unit = {},
-    ): Int = withContext(Dispatchers.IO) {
+    ): Int = withContext(probeDispatcher) {
         val candidates = db.serverDao().testCandidates(limit)
         if (candidates.isEmpty()) return@withContext 0
 
-        val gate = Semaphore(concurrency.coerceIn(1, 128))
         val done = AtomicInteger(0)
         val alive = AtomicInteger(0)
-
-        // Results are buffered and flushed in batches. Writing each row as its
-        // own transaction would invalidate every observed query thousands of
-        // times over, which is what made the UI lock up during a sweep.
         val pending = ArrayList<LatencyResult>(FLUSH_SIZE)
         val pendingLock = Mutex()
         var lastProgressAt = 0L
 
         suspend fun flush(force: Boolean) {
             val batch = pendingLock.withLock {
-                if (pending.size < FLUSH_SIZE && !force) return
+                if (!force && pending.size < FLUSH_SIZE) return
                 val copy = ArrayList(pending)
                 pending.clear()
                 copy
             }
-            if (batch.isNotEmpty()) db.serverDao().updateLatencies(batch)
+            if (batch.isNotEmpty()) {
+                // Room invalidates observed queries once per committed
+                // transaction, so batching is what keeps the list from being
+                // re-queried thousands of times during a sweep.
+                runCatching { db.serverDao().updateLatencies(batch) }
+            }
         }
 
-        coroutineScope {
-            candidates.map { server ->
-                async {
-                    gate.withPermit {
-                        val latency = probe(server)
-                        if (latency > 0) alive.incrementAndGet()
-                        pendingLock.withLock {
-                            pending.add(
-                                LatencyResult(
-                                    server.id,
-                                    latency,
-                                    ServerEntity.weightFor(latency),
-                                ),
-                            )
-                        }
-                        flush(force = false)
+        try {
+            coroutineScope {
+                // The whole sweep is chunked so at most `parallelism` probes are
+                // outstanding without needing a semaphore around every launch.
+                candidates.chunked(parallelism).forEach { chunk ->
+                    chunk.map { server ->
+                        async {
+                            // A single bad server must never abort the sweep;
+                            // an escaping exception used to cancel the scope and
+                            // leave the progress bar stuck forever.
+                            val latency = runCatching { probe(server) }
+                                .getOrDefault(Latency.FAILED)
+                            if (latency > 0) alive.incrementAndGet()
+                            pendingLock.withLock {
+                                pending.add(
+                                    LatencyResult(
+                                        server.id,
+                                        latency,
+                                        ServerEntity.weightFor(latency),
+                                    ),
+                                )
+                            }
+                            flush(force = false)
 
-                        val completed = done.incrementAndGet()
-                        val now = System.currentTimeMillis()
-                        // Throttle UI updates: one per frame budget is plenty.
-                        if (now - lastProgressAt >= PROGRESS_INTERVAL_MS ||
-                            completed == candidates.size
-                        ) {
-                            lastProgressAt = now
-                            onProgress(TestProgress(completed, candidates.size, alive.get()))
+                            val completed = done.incrementAndGet()
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressAt >= PROGRESS_INTERVAL_MS ||
+                                completed == candidates.size
+                            ) {
+                                lastProgressAt = now
+                                onProgress(TestProgress(completed, candidates.size, alive.get()))
+                            }
                         }
-                    }
+                    }.awaitAll()
                 }
-            }.awaitAll()
+            }
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } finally {
+            flush(force = true)
+            onProgress(TestProgress(done.get(), candidates.size, alive.get()))
         }
-        flush(force = true)
         alive.get()
+    }
+
+    fun shutdown() {
+        runCatching { resolverPool.shutdownNow() }
     }
 
     /** @return latency in milliseconds, or [Latency.FAILED]. */
@@ -110,9 +146,11 @@ class LatencyTester(
         val address = resolve(server.address) ?: return Latency.FAILED
         return when (server.protocolEnum) {
             // QUIC/UDP-based protocols have no handshake we can time without the
-            // core, so they are ranked on resolution + a fixed penalty. They stay
-            // comparable to each other and never outrank a measured TCP result.
-            Protocol.HYSTERIA2, Protocol.TUIC, Protocol.WIREGUARD -> udpReachability(address, server.port)
+            // core, so they are ranked on resolution plus a fixed penalty. They
+            // stay comparable to each other and never outrank a measured result.
+            Protocol.HYSTERIA2, Protocol.TUIC, Protocol.WIREGUARD ->
+                udpReachability(address, server.port)
+
             else -> tcpConnect(address, server.port)
         }
     }
@@ -122,8 +160,7 @@ class LatencyTester(
         return try {
             val start = System.nanoTime()
             socket.connect(InetSocketAddress(address, port), timeoutMs)
-            val elapsed = ((System.nanoTime() - start) / 1_000_000L).toInt()
-            elapsed.coerceAtLeast(1)
+            ((System.nanoTime() - start) / 1_000_000L).toInt().coerceAtLeast(1)
         } catch (_: Throwable) {
             Latency.FAILED
         } finally {
@@ -131,44 +168,48 @@ class LatencyTester(
         }
     }
 
-    /**
-     * UDP endpoints cannot be handshaked cheaply. We confirm the host resolves and
-     * that a datagram socket can be bound and pointed at it, then add a constant
-     * so these entries sort just below verified TCP servers of similar quality.
-     */
-    private fun udpReachability(address: InetAddress, port: Int): Int {
-        return try {
-            val start = System.nanoTime()
-            java.net.DatagramSocket().use { socket ->
-                socket.soTimeout = timeoutMs
-                socket.connect(InetSocketAddress(address, port))
-                if (!socket.isConnected) return Latency.FAILED
-            }
-            val elapsed = ((System.nanoTime() - start) / 1_000_000L).toInt()
-            (elapsed + UDP_RANK_PENALTY_MS).coerceAtLeast(UDP_RANK_PENALTY_MS)
-        } catch (_: Throwable) {
-            Latency.FAILED
+    private fun udpReachability(address: InetAddress, port: Int): Int = try {
+        val start = System.nanoTime()
+        java.net.DatagramSocket().use { socket ->
+            socket.soTimeout = timeoutMs
+            socket.connect(InetSocketAddress(address, port))
         }
+        val elapsed = ((System.nanoTime() - start) / 1_000_000L).toInt()
+        (elapsed + UDP_RANK_PENALTY_MS).coerceAtLeast(UDP_RANK_PENALTY_MS)
+    } catch (_: Throwable) {
+        Latency.FAILED
     }
 
-    private fun resolve(host: String): InetAddress? = dnsCache.getOrPut(host) {
-        try {
-            InetAddress.getByName(host)
-        } catch (_: IOException) {
+    private fun resolve(host: String): InetAddress? {
+        resolved[host]?.let { return it }
+        if (unresolvable.containsKey(host)) return null
+
+        val future = runCatching {
+            resolverPool.submit(Callable { InetAddress.getByName(host) })
+        }.getOrNull() ?: return null
+
+        return try {
+            val address = future.get(RESOLVE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            // ConcurrentHashMap rejects null values; failures are tracked in a
+            // separate set rather than cached as nulls.
+            if (address != null) resolved[host] = address else unresolvable[host] = true
+            address
+        } catch (_: Throwable) {
+            future.cancel(true)
+            unresolvable[host] = true
             null
         }
     }
 
     companion object {
-        /** Rows buffered before a batched write. */
         private const val FLUSH_SIZE = 150
-
-        /** Minimum gap between progress callbacks, in milliseconds. */
         private const val PROGRESS_INTERVAL_MS = 120L
+        private const val RESOLVER_THREADS = 16
+        private const val RESOLVE_TIMEOUT_MS = 2_500L
 
         /**
-         * Added to UDP-protocol results so an unmeasurable endpoint never wins the
-         * "fastest" slot over a server whose RTT we actually observed.
+         * Added to UDP-protocol results so an unmeasurable endpoint never wins
+         * the "fastest" slot over a server whose RTT we actually observed.
          */
         const val UDP_RANK_PENALTY_MS = 300
 
@@ -178,8 +219,9 @@ class LatencyTester(
          * End-to-end delay through the tunnel that is currently up.
          *
          * The request is sent through the core's loopback inbound rather than
-         * directly: this app excludes itself from its own VPN, so a plain request
-         * would measure the unproxied path and report a flattering, wrong number.
+         * directly: this app excludes itself from its own VPN, so a plain
+         * request would measure the unproxied path and report a flattering,
+         * wrong number.
          */
         suspend fun measureTunnelDelay(localProxyPort: Int): Int = withContext(Dispatchers.IO) {
             if (localProxyPort <= 0) return@withContext Latency.FAILED

@@ -19,8 +19,10 @@ import com.gozar.app.parser.ConfigParser
 import com.gozar.app.vpn.BootReceiver
 import com.gozar.app.vpn.GozarVpnService
 import com.gozar.app.vpn.VpnState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -66,6 +68,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _toast = MutableStateFlow<Toast?>(null)
     val toast: StateFlow<Toast?> = _toast.asStateFlow()
+
+    /** The single long-running background job, so it can be cancelled. */
+    private var busyJob: Job? = null
 
     val servers: StateFlow<List<ServerEntity>> =
         combine(_search.debounce(220), _filter) { query, filter -> query to filter }
@@ -119,27 +124,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // -------------------------------------------------------------- Sources
 
     fun refreshSources() {
-        if (_busy.value != null) return
-        viewModelScope.launch {
+        if (busyJob?.isActive == true) return
+        busyJob = viewModelScope.launch {
             _busy.value = BusyState.Refreshing(0, 1, "")
             val current = settingsRepository.current()
             val fetcher = SourceFetcher(database, current.maxServers)
-            val result = fetcher.refreshAll { progress ->
-                _busy.value = BusyState.Refreshing(
-                    progress.done,
-                    progress.total,
-                    progress.currentSource,
+            var newConfigs = 0
+            try {
+                val result = fetcher.refreshAll { progress ->
+                    _busy.value = BusyState.Refreshing(
+                        progress.done,
+                        progress.total,
+                        progress.currentSource,
+                    )
+                }
+                newConfigs = result.newConfigs
+                emitToast(
+                    getApplication<Application>().getString(
+                        com.gozar.app.R.string.source_updated,
+                        result.newConfigs,
+                        result.sourcesOk,
+                    ),
                 )
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                emitToast(error.message ?: "refresh failed")
+            } finally {
+                _busy.value = null
             }
-            _busy.value = null
-            emitToast(
-                getApplication<Application>().getString(
-                    com.gozar.app.R.string.source_updated,
-                    result.newConfigs,
-                    result.sourcesOk,
-                ),
-            )
-            if (result.newConfigs > 0) testAll()
+            if (newConfigs > 0) testAll()
         }
     }
 
@@ -220,8 +234,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // -------------------------------------------------------------- Testing
 
     fun testAll() {
-        if (_busy.value is BusyState.Testing) return
-        viewModelScope.launch {
+        if (busyJob?.isActive == true) return
+        busyJob = viewModelScope.launch {
             val current = settingsRepository.current()
             _busy.value = BusyState.Testing(0, 1, 0)
             val tester = LatencyTester(
@@ -229,11 +243,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 concurrency = current.testConcurrency,
                 timeoutMs = current.testTimeoutSeconds * 1000,
             )
-            tester.testAll { progress ->
-                _busy.value = BusyState.Testing(progress.done, progress.total, progress.alive)
+            try {
+                tester.testAll { progress ->
+                    _busy.value = BusyState.Testing(progress.done, progress.total, progress.alive)
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                emitToast(error.message ?: "test failed")
+            } finally {
+                // The progress bar must never outlive the work; leaving it set
+                // is indistinguishable from the app having frozen.
+                tester.shutdown()
+                _busy.value = null
             }
-            _busy.value = null
         }
+    }
+
+    /** Stops an in-flight sweep or refresh. */
+    fun cancelBusy() {
+        busyJob?.cancel()
+        busyJob = null
+        _busy.value = null
     }
 
     // -------------------------------------------------------------- Servers

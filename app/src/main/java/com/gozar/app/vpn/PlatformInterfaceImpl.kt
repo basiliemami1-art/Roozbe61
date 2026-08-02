@@ -277,8 +277,14 @@ class PlatformInterfaceImpl(
 
     // ------------------------------------------------------------------ Stubs
 
-    /** Letting Go resolve DNS itself keeps the hijack path in one place. */
-    override fun localDNSTransport(): LocalDNSTransport? = null
+    private val dnsTransport by lazy { LocalDnsTransport(service.applicationContext) }
+
+    /**
+     * Must not be null on Android: libbox only registers sing-box's `local` DNS
+     * transport when the platform provides one, and that transport is what
+     * resolves the proxy server's own hostname.
+     */
+    override fun localDNSTransport(): LocalDNSTransport = dnsTransport
 
     /** procfs socket lookup is blocked from Android 10 onwards. */
     override fun useProcFS(): Boolean = false
