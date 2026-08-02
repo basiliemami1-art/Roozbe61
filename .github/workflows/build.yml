@@ -150,7 +150,21 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          if ./gradlew :app:assembleRelease --console=plain 2>&1 | tee /tmp/gradle.log; then
+            exit 0
+          fi
+          # Compiler diagnostics first, then the tail, re-emitted as an
+          # annotation so they are readable without admin access to the log.
+          {
+            grep -E "^(e|w): |FAILURE|Caused by|> Task .*FAILED|error:" /tmp/gradle.log | head -40
+            echo "--- tail ---"
+            tail -25 /tmp/gradle.log
+          } > /tmp/gradle-errors.txt
+          SNIPPET="$(sed 's/%/%25/g; s/\r/ /g' /tmp/gradle-errors.txt | awk '{printf "%s%%0A", $0}')"
+          echo "::error title=Gradle build failed::${SNIPPET}"
+          exit 1
 
       - name: List outputs
         run: |
