@@ -29,11 +29,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      # 17 is not a preference: sing-box's build_libbox hard-checks the java
+      # banner for "openjdk 17" and aborts on anything else. AGP 8.7 and
+      # Gradle 8.11 both run fine on 17, so one JDK serves the whole job.
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
