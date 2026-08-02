@@ -133,6 +133,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                 monitorTraffic(connected.name)
             } catch (error: Throwable) {
                 Log.e(tag, "start failed", error)
+                Diagnostics.log("start failed: ${error.javaClass.simpleName}: ${error.message}")
                 VpnState.setError(error.message ?: error.javaClass.simpleName)
                 stopTunnel()
             }
@@ -174,6 +175,11 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
             }
 
             VpnState.setActiveServer(server.id)
+            // Shape of the config only — never the credentials in it.
+            Diagnostics.log(
+                "try ${index + 1}/${candidates.size}: ${proxy.protocol.label} " +
+                    "${proxy.server}:${proxy.port} net=${proxy.network} sec=${proxy.security}",
+            )
             VpnState.setProgress(
                 getString(R.string.trying_server, index + 1, candidates.size, server.name),
             )
@@ -407,8 +413,17 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
     override fun setSystemProxyEnabled(enabled: Boolean) = Unit
 
+    /** The core's own messages — its errors are the ones worth seeing. */
     override fun writeDebugMessage(message: String?) {
-        Log.d(tag, message.orEmpty())
+        val text = message.orEmpty().trim()
+        if (text.isEmpty()) return
+        Log.d(tag, text)
+        if (text.contains("error", ignoreCase = true) ||
+            text.contains("failed", ignoreCase = true) ||
+            text.contains("fatal", ignoreCase = true)
+        ) {
+            Diagnostics.log("core: ${text.take(220)}")
+        }
     }
 
     companion object {
