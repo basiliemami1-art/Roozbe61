@@ -17,6 +17,7 @@ import com.gozar.app.net.LatencyTester
 import com.gozar.app.net.SourceFetcher
 import com.gozar.app.parser.ConfigParser
 import com.gozar.app.vpn.BootReceiver
+import com.gozar.app.vpn.Diagnostics
 import com.gozar.app.vpn.GozarVpnService
 import com.gozar.app.vpn.VpnState
 import kotlinx.coroutines.CancellationException
@@ -56,6 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val vpnError = VpnState.lastError
     val activeServerId = VpnState.activeServerId
     val connectProgress = VpnState.progress
+    val diagnostics = Diagnostics.lines
 
     private val _search = MutableStateFlow("")
     val search: StateFlow<String> = _search.asStateFlow()
@@ -414,4 +416,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearVpnError() {
         VpnState.clearError()
     }
+
+    /** Puts the diagnostic log on the clipboard so it can be shared verbatim. */
+    fun copyDiagnostics() {
+        val context = getApplication<Application>()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(
+            android.content.ClipData.newPlainText("Gozar diagnostics", Diagnostics.asText()),
+        )
+        emitToast(context.getString(com.gozar.app.R.string.copied))
+    }
+
+    fun clearDiagnostics() = Diagnostics.clear()
 }

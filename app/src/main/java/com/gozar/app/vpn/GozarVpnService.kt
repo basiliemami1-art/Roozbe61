@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.ServerSocket
 
@@ -161,6 +162,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         val probePort = findFreePort()
         localProxyPort = probePort
+        Diagnostics.log("connecting — ${candidates.size} candidates, probe port $probePort")
         prepareCore()
 
         var lastError: String? = null
@@ -180,17 +182,27 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
             try {
                 applyConfig(SingBoxConfig.build(proxy, settings, probePort))
             } catch (error: Throwable) {
-                Log.w(tag, "config rejected for ${server.name}: ${error.message}")
-                lastError = error.message
+                Diagnostics.log("core rejected ${server.name}: ${error.message}")
+                lastError = "core error: ${error.message}"
                 markServerFailed(server)
                 continue
             }
 
             // Give the inbound a moment to bind before probing through it.
             delay(700)
+
+            // Separating these two failures matters: if the loopback inbound is
+            // not even listening the fault is ours, not the server's, and every
+            // candidate would fail identically.
+            if (!isLocalInboundUp(probePort)) {
+                Diagnostics.log("local inbound 127.0.0.1:$probePort is not listening")
+                lastError = "core inbound not listening"
+                break
+            }
+
             val delayMs = LatencyTester.measureTunnelDelay(probePort)
             if (delayMs > 0) {
-                Log.i(tag, "verified ${server.name} at ${delayMs}ms")
+                Diagnostics.log("OK ${server.name} — ${delayMs}ms through the tunnel")
                 database.serverDao().updateLatency(
                     id = server.id,
                     latency = delayMs,
@@ -202,7 +214,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                 return server
             }
 
-            Log.w(tag, "${server.name} came up but carried no traffic")
+            Diagnostics.log("${server.name} came up but carried no traffic")
             lastError = "no traffic"
             markServerFailed(server)
         }
@@ -272,6 +284,22 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
     /** Asks the OS for a free loopback port for the core's local inbound. */
     private fun findFreePort(): Int = ServerSocket(0).use { it.localPort }
+
+    /** True when the core's loopback inbound is accepting connections. */
+    private suspend fun isLocalInboundUp(port: Int): Boolean = withContext(Dispatchers.IO) {
+        repeat(3) { attempt ->
+            val socket = java.net.Socket()
+            try {
+                socket.connect(java.net.InetSocketAddress("127.0.0.1", port), 1_500)
+                return@withContext true
+            } catch (_: Throwable) {
+                if (attempt < 2) delay(400)
+            } finally {
+                runCatching { socket.close() }
+            }
+        }
+        false
+    }
 
     private fun setupLibbox(basePath: File, workingPath: File, tempPath: File) {
         if (libboxReady) return

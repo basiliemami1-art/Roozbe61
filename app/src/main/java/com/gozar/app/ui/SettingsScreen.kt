@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -24,8 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gozar.app.BuildConfig
 import com.gozar.app.R
 import com.gozar.app.data.PerAppMode
@@ -36,6 +39,7 @@ import com.gozar.app.ui.components.SectionHeader
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
+    val diagnostics by viewModel.diagnostics.collectAsState()
     var showAppPicker by remember { mutableStateOf(false) }
 
     if (showAppPicker) {
@@ -206,6 +210,43 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     selected = settings.testTimeoutSeconds,
                     onSelect = viewModel::setTestTimeout,
                 )
+            }
+        }
+
+        SectionHeader(stringResource(R.string.diagnostics))
+        GlassCard(Modifier.padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.diagnostics_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = viewModel::copyDiagnostics) {
+                        Text(stringResource(R.string.copy_link))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (diagnostics.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.diagnostics_empty),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    // Newest first: the last attempt is what matters.
+                    diagnostics.asReversed().take(25).forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 1.dp),
+                        )
+                    }
+                }
             }
         }
 

@@ -112,6 +112,10 @@
     <string name="test_concurrency">Concurrent tests</string>
     <string name="test_timeout">Test timeout (seconds)</string>
 
+    <string name="diagnostics">Diagnostics</string>
+    <string name="diagnostics_hint">Every connect attempt records its outcome here</string>
+    <string name="diagnostics_empty">Nothing recorded yet — try connecting once</string>
+
     <string name="settings_about">About</string>
     <string name="version">Version %1$s</string>
     <string name="core_version">Core: %1$s</string>

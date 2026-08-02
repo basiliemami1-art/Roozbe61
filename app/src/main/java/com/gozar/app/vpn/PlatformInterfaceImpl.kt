@@ -50,6 +50,9 @@ class PlatformInterfaceImpl(
     private var tunDescriptor: ParcelFileDescriptor? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    @Volatile
+    private var reportedProtectFailure = false
+
     private val connectivity: ConnectivityManager
         get() = service.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -113,6 +116,11 @@ class PlatformInterfaceImpl(
         val descriptor = builder.establish()
             ?: error("VPN permission revoked or another VPN is active")
         tunDescriptor = descriptor
+        Diagnostics.log(
+            "tun up — mtu ${options.getMTU()}, " +
+                "${v4Addresses.size} v4 / ${v6Addresses.size} v6 addresses, " +
+                "autoRoute=${options.getAutoRoute()}",
+        )
         // libbox dup()s this descriptor, so we keep ownership and close it on stop.
         return descriptor.fd
     }
@@ -153,9 +161,23 @@ class PlatformInterfaceImpl(
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
+    /**
+     * Called by the core before every outbound connect.
+     *
+     * A false return from [android.net.VpnService.protect] must never be fatal
+     * here. This app excludes its own package from the tunnel, so its sockets
+     * bypass the VPN whether or not they are explicitly protected — and protect()
+     * legitimately reports false in that situation, and again for any dial that
+     * happens before `establish()` has run. Throwing turned a benign result into
+     * a failed dial on *every* outbound, which presents as a tunnel that comes
+     * up and then carries nothing.
+     */
     override fun autoDetectInterfaceControl(fd: Int) {
-        if (!service.protect(fd)) {
-            throw IllegalStateException("protect($fd) failed")
+        val protectedOk = runCatching { service.protect(fd) }.getOrDefault(false)
+        // Reported once: this fires per socket and would otherwise drown the log.
+        if (!protectedOk && !reportedProtectFailure) {
+            reportedProtectFailure = true
+            Diagnostics.log("protect() reports false; sockets bypass the VPN by package exclusion")
         }
     }
 
@@ -163,6 +185,11 @@ class PlatformInterfaceImpl(
 
     @SuppressLint("MissingPermission")
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+        // A reload starts a fresh monitor; without this the previous callback
+        // stays registered and keeps reporting into a dead listener.
+        networkCallback?.let { runCatching { connectivity.unregisterNetworkCallback(it) } }
+        networkCallback = null
+
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = report(network, null)
 
@@ -246,10 +273,15 @@ class PlatformInterfaceImpl(
             boxInterface.setAddresses(
                 StringList(
                     nif.interfaceAddresses.mapNotNull { entry ->
-                        val host = entry.address?.hostAddress?.substringBefore('%')
+                        val address = entry.address ?: return@mapNotNull null
+                        val host = address.hostAddress?.substringBefore('%')
                             ?: return@mapNotNull null
                         val length = entry.networkPrefixLength.toInt()
-                        if (length < 0 || length > 128) null else "$host/$length"
+                        // libbox parses these with netip.MustParsePrefix, which
+                        // panics on a bad prefix — and a Go panic here takes the
+                        // whole process down. Validate per address family.
+                        val max = if (address is java.net.Inet4Address) 32 else 128
+                        if (length < 0 || length > max) null else "$host/$length"
                     },
                 ),
             )

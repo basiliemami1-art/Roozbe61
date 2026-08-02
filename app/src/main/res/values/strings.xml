@@ -113,6 +113,10 @@
     <string name="test_concurrency">تعداد تست هم‌زمان</string>
     <string name="test_timeout">مهلت تست (ثانیه)</string>
 
+    <string name="diagnostics">گزارش عیب‌یابی</string>
+    <string name="diagnostics_hint">نتیجه‌ی هر تلاش برای اتصال اینجا ثبت می‌شود</string>
+    <string name="diagnostics_empty">هنوز چیزی ثبت نشده — یک بار اتصال را بزنید</string>
+
     <string name="settings_about">درباره</string>
     <string name="version">نسخه %1$s</string>
     <string name="core_version">هسته: %1$s</string>
