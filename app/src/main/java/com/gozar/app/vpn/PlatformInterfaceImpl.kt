@@ -9,8 +9,11 @@ import android.net.IpPrefix
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.gozar.app.data.PerAppMode
@@ -42,6 +45,7 @@ import io.nekohasekai.libbox.NetworkInterface as BoxNetworkInterface
  */
 class PlatformInterfaceImpl(
     private val service: GozarVpnService,
+    private val upstream: UnderlyingNetwork,
     private val settingsProvider: () -> Settings,
 ) : PlatformInterface {
 
@@ -54,7 +58,7 @@ class PlatformInterfaceImpl(
     private var reportedProtectFailure = false
 
     @Volatile
-    private var reportedInterface = false
+    private var lastReportedInterface: String? = null
 
     @Volatile
     private var reportedInterfaceCount = false
@@ -118,6 +122,9 @@ class PlatformInterfaceImpl(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
+        // Tells the system which network the tunnel actually runs over, so it
+        // can keep the VPN alive across a Wi-Fi/cellular handover.
+        upstream.network?.let { runCatching { builder.setUnderlyingNetworks(arrayOf(it)) } }
 
         val descriptor = builder.establish()
             ?: error("VPN permission revoked or another VPN is active")
@@ -132,15 +139,20 @@ class PlatformInterfaceImpl(
     }
 
     /**
-     * Our own package is always kept outside the tunnel. When the Xray core is
-     * chained behind sing-box it dials the remote server from this very process,
-     * and without the exclusion those packets would be routed straight back into
-     * the TUN.
+     * Applies the user's per-app choice, and nothing else.
+     *
+     * This deliberately does *not* exclude our own package. Excluding it looks
+     * like a tidy way to keep the core's sockets out of the tunnel, but the
+     * exclusion does not hold — with it in place Android still reported tun0 as
+     * this app's default network, so the core's outbound dials re-entered the
+     * tunnel they were serving and every connection died in milliseconds. The
+     * mechanism that actually works is [android.net.VpnService.protect] on each
+     * outbound socket, which is what every established client uses.
      */
     private fun applyPackageFilter(builder: VpnService.Builder, settings: Settings) {
         val self = service.packageName
         when (settings.perAppMode) {
-            PerAppMode.OFF -> runCatching { builder.addDisallowedApplication(self) }
+            PerAppMode.OFF -> Unit
 
             PerAppMode.INCLUDE -> {
                 var added = false
@@ -148,13 +160,11 @@ class PlatformInterfaceImpl(
                     if (pkg == self) continue
                     runCatching { builder.addAllowedApplication(pkg) }.onSuccess { added = true }
                 }
-                // An empty allow-list would tunnel nothing at all; fall back to
-                // tunnelling everything but ourselves.
-                if (!added) runCatching { builder.addDisallowedApplication(self) }
+                // An empty allow-list would tunnel nothing at all.
+                if (!added) Diagnostics.log("per-app include list is empty; tunnelling everything")
             }
 
             PerAppMode.EXCLUDE -> {
-                runCatching { builder.addDisallowedApplication(self) }
                 for (pkg in settings.perAppList) {
                     if (pkg == self) continue
                     runCatching { builder.addDisallowedApplication(pkg) }
@@ -181,9 +191,11 @@ class PlatformInterfaceImpl(
     override fun autoDetectInterfaceControl(fd: Int) {
         val protectedOk = runCatching { service.protect(fd) }.getOrDefault(false)
         // Reported once: this fires per socket and would otherwise drown the log.
+        // Unlike before, this now matters: protect() is the only thing keeping
+        // the core's own dials out of the tunnel.
         if (!protectedOk && !reportedProtectFailure) {
             reportedProtectFailure = true
-            Diagnostics.log("protect() reports false; sockets bypass the VPN by package exclusion")
+            Diagnostics.log("WARNING protect() failed — the core's dials may loop back into the tunnel")
         }
     }
 
@@ -226,9 +238,9 @@ class PlatformInterfaceImpl(
                     Diagnostics.log("cannot resolve index for interface '$name'")
                     return
                 }
-                if (!reportedInterface) {
-                    reportedInterface = true
-                    Diagnostics.log("default interface: $name (index $index)")
+                if (lastReportedInterface != name) {
+                    lastReportedInterface = name
+                    Diagnostics.log("upstream interface: $name (index $index)")
                 }
                 val caps = capabilities ?: connectivity.getNetworkCapabilities(network)
                 val expensive =
@@ -239,9 +251,23 @@ class PlatformInterfaceImpl(
             }
         }
         networkCallback = callback
-        // The default callback reports the network the system would pick for our
-        // own (tunnel-excluded) traffic, which is exactly the upstream we want.
-        connectivity.registerDefaultNetworkCallback(callback)
+        // NOT the default-network callback: once our own VPN is up that reports
+        // tun0, and telling the core its upstream is the tunnel it is serving
+        // makes every outbound dial loop back into itself. Ask for a non-VPN
+        // network explicitly.
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            connectivity.registerBestMatchingNetworkCallback(
+                request,
+                callback,
+                Handler(Looper.getMainLooper()),
+            )
+        } else {
+            connectivity.registerNetworkCallback(request, callback)
+        }
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
@@ -353,7 +379,9 @@ class PlatformInterfaceImpl(
 
     // ------------------------------------------------------------------ Stubs
 
-    private val dnsTransport by lazy { LocalDnsTransport(service.applicationContext) }
+    private val dnsTransport by lazy {
+        LocalDnsTransport(service.applicationContext, upstream)
+    }
 
     /**
      * Must not be null on Android: libbox only registers sing-box's `local` DNS

@@ -1,7 +1,6 @@
 package com.gozar.app.vpn
 
 import android.content.Context
-import android.net.ConnectivityManager
 import android.util.Log
 import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.LocalDNSTransport
@@ -22,7 +21,10 @@ import java.net.InetAddress
  * Queries deliberately go out over the underlying network rather than the
  * tunnel: the app excludes itself from its own VPN, so this cannot loop.
  */
-class LocalDnsTransport(private val context: Context) : LocalDNSTransport {
+class LocalDnsTransport(
+    private val context: Context,
+    private val upstream: UnderlyingNetwork,
+) : LocalDNSTransport {
 
     private val tag = "GozarDns"
 
@@ -61,12 +63,13 @@ class LocalDnsTransport(private val context: Context) : LocalDNSTransport {
     }
 
     private fun resolve(host: String): Array<InetAddress> {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        val network = manager?.activeNetwork
-        // Resolving through the Network object pins the query to that network's
-        // DNS servers instead of whatever the process default happens to be.
-        return network?.let { runCatching { it.getAllByName(host) }.getOrNull() }
-            ?: InetAddress.getAllByName(host)
+        // Must be the underlying network, not the active one: once the tunnel is
+        // up the active network *is* the tunnel, and resolving through it would
+        // ask the tunnel to resolve the address of the server the tunnel needs.
+        upstream.network?.let { network ->
+            runCatching { network.getAllByName(host) }.getOrNull()?.let { return it }
+        }
+        return InetAddress.getAllByName(host)
     }
 
     private companion object {

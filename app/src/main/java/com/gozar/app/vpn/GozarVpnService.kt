@@ -54,6 +54,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
     private var platform: PlatformInterfaceImpl? = null
     private var commandServer: CommandServer? = null
+    private val upstream by lazy { UnderlyingNetwork(applicationContext) }
 
     private var currentSettings: Settings = Settings()
     private var startedAt: Long = 0
@@ -269,7 +270,11 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         val tempPath = File(cacheDir, "box").also { it.mkdirs() }
         setupLibbox(basePath, workingPath, tempPath)
 
-        val platformInterface = PlatformInterfaceImpl(this) { currentSettings }
+        // Must be tracking before the core starts: the DNS transport and the
+        // interface monitor both depend on knowing the non-VPN network.
+        upstream.start()
+
+        val platformInterface = PlatformInterfaceImpl(this, upstream) { currentSettings }
         platform = platformInterface
 
         val server = Libbox.newCommandServer(this, platformInterface)
@@ -337,6 +342,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         platform?.closeTun()
         platform = null
+        upstream.stop()
 
         VpnState.setStatus(ConnectionStatus.DISCONNECTED)
         stopSelfSafely()
