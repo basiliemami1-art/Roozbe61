@@ -17,8 +17,10 @@ env:
   SING_BOX_VERSION: v1.13.15
   XRAY_LIB_VERSION: v26.7.31
   GRADLE_VERSION: 8.11.1
-  # gomobile is picky about NDK layout; r27 is the last line it is known good on.
-  NDK_VERSION: 27.2.12479018
+  # sing-box links a prebuilt libcronet.a (pulled in by with_naive_outbound)
+  # that carries relocations r27's ld.lld rejects with "unknown reloc", so the
+  # NDK has to be at least r28.
+  NDK_VERSION: 28.2.13676358
 
 jobs:
   build:
@@ -45,10 +47,12 @@ jobs:
         run: |
           set -eo pipefail
           sdkmanager --install "platforms;android-35" "build-tools;35.0.0" > /dev/null
-          sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null || true
-          # Deliberately prefer the pinned NDK over anything newer that the
-          # runner image ships: gomobile breaks on NDK layout changes, so
-          # "whatever is highest" is the wrong choice here.
+          sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null \
+            || echo "::warning::sdkmanager could not install ndk;${NDK_VERSION}"
+          AVAILABLE="$(ls "$ANDROID_SDK_ROOT/ndk" 2>/dev/null | sort -V | tr '\n' ' ')"
+          echo "::warning title=NDKs available::${AVAILABLE:-none}"
+          # Prefer the pinned NDK; otherwise take the newest present, since the
+          # failure mode we are avoiding is a linker that is too old.
           if [ -d "$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" ]; then
             NDK_DIR="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
           else
@@ -59,7 +63,6 @@ jobs:
             echo "::error::No Android NDK found; gomobile cannot build libbox."
             exit 1
           fi
-          echo "Available NDKs: $(ls "$ANDROID_SDK_ROOT/ndk" | tr '\n' ' ')"
           echo "Using NDK at $NDK_DIR"
           echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
@@ -75,7 +78,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: app/libs/libbox.aar
-          key: libbox-${{ env.SING_BOX_VERSION }}-ndk27
+          key: libbox-${{ env.SING_BOX_VERSION }}-ndk-${{ env.NDK_VERSION }}
 
       # sing-box publishes no prebuilt Android artifact, so the core is compiled
       # from the pinned tag with gomobile. This is the slow step (~6-10 min) and
