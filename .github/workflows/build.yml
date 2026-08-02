@@ -26,6 +26,9 @@ env:
   # NDK has to be at least r28.
   NDK_VERSION: 28.2.13676358
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -184,3 +187,19 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      # Artifacts need a signed-in GitHub account to download, which makes them
+      # useless for handing someone an APK. A release asset is a plain URL.
+      - name: Publish to the rolling "latest" release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          body: |
+            Automatic build of `${{ github.sha }}`.
+
+            Install **app-arm64-v8a-release.apk** unless you know you need another ABI.
+          files: app/build/outputs/apk/release/*.apk
+          prerelease: true
+          make_latest: false
