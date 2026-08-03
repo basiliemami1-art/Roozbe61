@@ -129,8 +129,18 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
+      # Configuration errors surface here first, since this is the first command
+      # that evaluates the build scripts — so it needs the same error reporting
+      # as the compile step.
       - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version "$GRADLE_VERSION"
+        run: |
+          set -o pipefail
+          if gradle wrapper --gradle-version "$GRADLE_VERSION" --console=plain 2>&1 | tee /tmp/wrapper.log; then
+            exit 0
+          fi
+          SNIPPET="$(tail -60 /tmp/wrapper.log | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}')"
+          echo "::error title=Gradle configuration failed::${SNIPPET}"
+          exit 1
 
       # Secrets are not usable in a step-level `if`, so the decision is made in
       # the shell. With no keystore configured the build falls back to the debug

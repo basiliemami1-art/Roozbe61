@@ -3,13 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// The toolchain alone sets both the Kotlin and Java targets; declaring them
+// again in a `java {}` block risks an inconsistent-target error.
 kotlin {
     jvmToolchain(17)
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
 }
 
 dependencies {
