@@ -1,4 +1,4 @@
-package com.gozar.app.ui.components
+package com.gozar.app.model
 
 /**
  * Aggregator config names almost always carry a location hint — either a flag

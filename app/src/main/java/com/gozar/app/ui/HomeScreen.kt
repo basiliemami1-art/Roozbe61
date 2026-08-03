@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gozar.app.R
 import com.gozar.app.ui.components.ConnectButton
-import com.gozar.app.ui.components.Flags
+import com.gozar.app.model.Flags
 import com.gozar.app.ui.components.GlassCard
 import com.gozar.app.ui.components.LatencyPill
 import com.gozar.app.ui.components.ProtocolChip

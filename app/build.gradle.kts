@@ -110,6 +110,10 @@ ksp {
 }
 
 dependencies {
+    // Parsers, source list, probing and config generation — shared verbatim
+    // with the desktop app so the two cannot drift.
+    implementation(project(":shared"))
+
     // The sing-box core, compiled by CI and intentionally not committed.
     // Only one gomobile-generated AAR may be present: each bundles its own copy
     // of the `go.*` runtime, so a second one collides on `go.Seq`.

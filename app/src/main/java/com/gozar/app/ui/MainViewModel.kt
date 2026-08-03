@@ -15,6 +15,7 @@ import com.gozar.app.data.SourceEntity
 import com.gozar.app.data.ThemeMode
 import com.gozar.app.net.LatencyTester
 import com.gozar.app.net.SourceFetcher
+import com.gozar.app.net.SourceLoader
 import com.gozar.app.parser.ConfigParser
 import com.gozar.app.vpn.BootReceiver
 import com.gozar.app.vpn.Diagnostics
@@ -176,7 +177,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addSource(input: String) {
         viewModelScope.launch {
-            val spec = SourceFetcher.normalizeUserInput(input)
+            val spec = SourceLoader.normalizeUserInput(input)
             if (spec == null) {
                 emitToast(getApplication<Application>().getString(com.gozar.app.R.string.import_nothing))
                 return@launch

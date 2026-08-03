@@ -214,7 +214,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                 database.serverDao().updateLatency(
                     id = server.id,
                     latency = delayMs,
-                    weight = ServerEntity.weightFor(delayMs),
+                    weight = Latency.weightFor(delayMs),
                     time = System.currentTimeMillis(),
                 )
                 VpnState.setStats(VpnState.stats.value.copy(delayMs = delayMs))
@@ -237,7 +237,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         database.serverDao().updateLatency(
             id = server.id,
             latency = Latency.FAILED,
-            weight = ServerEntity.weightFor(Latency.FAILED),
+            weight = Latency.weightFor(Latency.FAILED),
             time = System.currentTimeMillis(),
         )
     }

@@ -2,7 +2,11 @@ package com.gozar.app.parser
 
 import com.gozar.app.model.Protocol
 import com.gozar.app.model.ProxyConfig
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Turns share links from aggregators, Telegram posts and the clipboard into
@@ -95,33 +99,44 @@ object ConfigParser {
         )
     }
 
+    /**
+     * The vmess JSON in the wild is not well typed: `port` and `aid` are
+     * sometimes numbers and sometimes strings, and unknown keys are common, so
+     * every field is read as loose text.
+     */
+    private val lenientJson = Json { isLenient = true; ignoreUnknownKeys = true }
+
+    private fun JsonObject.text(key: String): String =
+        this[key]?.jsonPrimitive?.contentOrNull.orEmpty()
+
     private fun parseVmessJson(json: String, raw: String): ProxyConfig? {
-        val obj = JSONObject(json)
-        val server = obj.optString("add").ifBlank { return null }
-        val port = obj.optString("port").toIntOrNull() ?: obj.optInt("port")
-        val net = normalizeNetwork(obj.optString("net").ifBlank { "tcp" })
-        val tls = normalizeSecurity(obj.optString("tls"))
-        val host = obj.optString("host").takeIf { it.isNotBlank() }
-        val path = obj.optString("path").takeIf { it.isNotBlank() }
+        val obj = runCatching { lenientJson.parseToJsonElement(json).jsonObject }.getOrNull()
+            ?: return null
+        val server = obj.text("add").ifBlank { return null }
+        val port = obj.text("port").trim().toIntOrNull() ?: return null
+        val net = normalizeNetwork(obj.text("net").ifBlank { "tcp" })
+        val tls = normalizeSecurity(obj.text("tls"))
+        val host = obj.text("host").takeIf { it.isNotBlank() }
+        val path = obj.text("path").takeIf { it.isNotBlank() }
         return ProxyConfig(
             protocol = Protocol.VMESS,
-            name = obj.optString("ps").ifBlank { server },
+            name = obj.text("ps").ifBlank { server },
             server = server,
             port = port,
-            uuid = obj.optString("id").ifBlank { return null },
-            alterId = obj.optString("aid").toIntOrNull() ?: 0,
-            encryption = obj.optString("scy").ifBlank { "auto" },
+            uuid = obj.text("id").ifBlank { return null },
+            alterId = obj.text("aid").trim().toIntOrNull() ?: 0,
+            encryption = obj.text("scy").ifBlank { "auto" },
             network = net,
-            headerType = obj.optString("type").takeIf { it.isNotBlank() && it != "none" },
+            headerType = obj.text("type").takeIf { it.isNotBlank() && it != "none" },
             host = host,
             path = path,
             // gRPC reuses the `path` field for the service name in this format.
             serviceName = if (net == "grpc") path?.trimStart('/') else null,
             security = tls,
-            sni = obj.optString("sni").takeIf { it.isNotBlank() } ?: host.takeIf { tls != "none" },
-            alpn = splitAlpn(obj.optString("alpn")),
-            fingerprint = obj.optString("fp").takeIf { it.isNotBlank() },
-            allowInsecure = obj.optString("verify_cert") == "false" || obj.optInt("allowInsecure") == 1,
+            sni = obj.text("sni").takeIf { it.isNotBlank() } ?: host.takeIf { tls != "none" },
+            alpn = splitAlpn(obj.text("alpn")),
+            fingerprint = obj.text("fp").takeIf { it.isNotBlank() },
+            allowInsecure = obj.text("verify_cert") == "false" || obj.text("allowInsecure") == "1",
             raw = raw,
         )
     }

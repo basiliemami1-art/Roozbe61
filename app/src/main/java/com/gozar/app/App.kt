@@ -23,7 +23,7 @@ class App : Application() {
         scope.launch {
             // Parsed once at startup so the latency sweep can classify entry
             // points without touching the disk per server.
-            IranRanges.load(this@App)
+            IranRanges.load()
 
             val database = GozarDatabase.get(this@App)
             SourceFetcher.seedDefaults(database)

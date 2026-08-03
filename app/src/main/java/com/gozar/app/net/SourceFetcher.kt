@@ -1,12 +1,10 @@
 package com.gozar.app.net
 
 import android.util.Log
+import com.gozar.app.data.DefaultSources
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.data.SourceEntity
-import com.gozar.app.data.SourceSpec
-import com.gozar.app.parser.Codecs
-import com.gozar.app.parser.ConfigParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -31,11 +29,9 @@ data class RefreshResult(
 )
 
 /**
- * Pulls raw config text from every enabled source, parses it, and stores the
- * de-duplicated result.
- *
- * Subscription endpoints tolerate parallel requests; `t.me` does not, so the two
- * kinds get separate concurrency limits.
+ * Pulls raw config text from every enabled source and stores the de-duplicated
+ * result. Fetching and parsing live in [SourceLoader], shared with the desktop
+ * app; this owns the concurrency policy and the database.
  */
 class SourceFetcher(
     private val db: GozarDatabase,
@@ -49,6 +45,7 @@ class SourceFetcher(
         val sources = db.sourceDao().enabled()
         if (sources.isEmpty()) return@withContext RefreshResult(0, 0, 0, 0)
 
+        // Subscription endpoints tolerate parallel requests; t.me does not.
         val subscriptionLimit = Semaphore(6)
         val telegramLimit = Semaphore(3)
         val done = AtomicInteger(0)
@@ -81,11 +78,7 @@ class SourceFetcher(
                             parsedTotal.addAndGet(result.second)
                         }
                         onProgress(
-                            RefreshProgress(
-                                done.incrementAndGet(),
-                                sources.size,
-                                source.name,
-                            ),
+                            RefreshProgress(done.incrementAndGet(), sources.size, source.name),
                         )
                     }
                 }
@@ -104,18 +97,10 @@ class SourceFetcher(
 
     /** @return (newly inserted, total parsed) */
     private suspend fun refreshOne(source: SourceEntity): Pair<Int, Int> {
-        val body = download(resolveUrl(source))
-        val text = if (Codecs.looksBase64(body)) Codecs.decodeBase64(body) ?: body else body
-
-        val configs = ConfigParser.parseMany(text)
+        val configs = SourceLoader.fetch(source.url)
 
         if (configs.isEmpty()) {
-            db.sourceDao().markUpdated(
-                source.id,
-                System.currentTimeMillis(),
-                0,
-                "no configs found",
-            )
+            db.sourceDao().markUpdated(source.id, System.currentTimeMillis(), 0, "no configs found")
             return 0 to 0
         }
 
@@ -137,87 +122,31 @@ class SourceFetcher(
         val ids = db.serverDao().insertAll(entities)
         val inserted = ids.count { it != -1L }
 
-        db.sourceDao().markUpdated(
-            source.id,
-            System.currentTimeMillis(),
-            configs.size,
-            null,
-        )
+        db.sourceDao().markUpdated(source.id, System.currentTimeMillis(), configs.size, null)
         return inserted to configs.size
-    }
-
-    private fun resolveUrl(source: SourceEntity): String = when {
-        source.url.startsWith("tg:") -> "https://t.me/s/${source.url.removePrefix("tg:")}"
-        else -> source.url
-    }
-
-    private fun download(url: String): String {
-        Http.client.newCall(Http.request(url)).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            return response.body?.string().orEmpty()
-        }
     }
 
     companion object {
 
+        private fun defaults() = DefaultSources.all.map { spec ->
+            SourceEntity(
+                name = spec.name,
+                url = spec.url,
+                kind = spec.kind.name,
+                enabled = true,
+                builtIn = true,
+            )
+        }
+
         /** Populates the source table on first launch. */
         suspend fun seedDefaults(db: GozarDatabase) = withContext(Dispatchers.IO) {
             if (db.sourceDao().count() > 0) return@withContext
-            db.sourceDao().insertAll(
-                com.gozar.app.data.DefaultSources.all.map { spec ->
-                    SourceEntity(
-                        name = spec.name,
-                        url = spec.url,
-                        kind = spec.kind.name,
-                        enabled = true,
-                        builtIn = true,
-                    )
-                },
-            )
+            db.sourceDao().insertAll(defaults())
         }
 
-        /** Restores any built-in source the user deleted, without touching their own. */
+        /** Restores any built-in source the user deleted, without touching theirs. */
         suspend fun restoreDefaults(db: GozarDatabase) = withContext(Dispatchers.IO) {
-            db.sourceDao().insertAll(
-                com.gozar.app.data.DefaultSources.all.map { spec ->
-                    SourceEntity(
-                        name = spec.name,
-                        url = spec.url,
-                        kind = spec.kind.name,
-                        enabled = true,
-                        builtIn = true,
-                    )
-                },
-            )
-        }
-
-        /**
-         * Normalises whatever the user pasted into the "add source" field.
-         * Accepts a full URL, `t.me/foo`, `@foo`, or a bare channel name.
-         */
-        fun normalizeUserInput(input: String): SourceSpec? {
-            val value = input.trim()
-            if (value.isEmpty()) return null
-            val telegramMatch = Regex("""(?:https?://)?t\.me/(?:s/)?([A-Za-z0-9_]{4,})""")
-                .find(value)
-            if (telegramMatch != null) {
-                val channel = telegramMatch.groupValues[1]
-                return SourceSpec("@$channel", "tg:$channel", SourceSpec.Kind.TELEGRAM)
-            }
-            if (value.startsWith("@")) {
-                val channel = value.removePrefix("@")
-                if (channel.matches(Regex("[A-Za-z0-9_]{4,}"))) {
-                    return SourceSpec("@$channel", "tg:$channel", SourceSpec.Kind.TELEGRAM)
-                }
-            }
-            if (value.startsWith("http://") || value.startsWith("https://")) {
-                val name = value.substringAfterLast('/').ifBlank { value }.take(40)
-                return SourceSpec(name, value, SourceSpec.Kind.SUBSCRIPTION)
-            }
-            if (value.matches(Regex("[A-Za-z0-9_]{4,}"))) {
-                return SourceSpec("@$value", "tg:$value", SourceSpec.Kind.TELEGRAM)
-            }
-            return null
+            db.sourceDao().insertAll(defaults())
         }
     }
 }

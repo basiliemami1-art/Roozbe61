@@ -1,7 +1,7 @@
 package com.gozar.app.parser
 
-import android.util.Base64
 import java.net.URLDecoder
+import java.util.Base64
 
 /**
  * Base64 in the wild is sloppy: aggregators mix URL-safe and standard alphabets,
@@ -24,14 +24,16 @@ object Codecs {
             else -> cleaned
         }
         return try {
-            String(Base64.decode(padded, Base64.DEFAULT), Charsets.UTF_8)
+            // The MIME decoder skips anything outside the alphabet instead of
+            // throwing, which is what scraped payloads need.
+            String(Base64.getMimeDecoder().decode(padded), Charsets.UTF_8)
         } catch (_: Throwable) {
             null
         }
     }
 
     fun encodeBase64(input: String): String =
-        Base64.encodeToString(input.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        Base64.getEncoder().encodeToString(input.toByteArray(Charsets.UTF_8))
 
     /**
      * True when the text looks like one big base64 blob rather than a list of URIs.

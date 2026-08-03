@@ -6,18 +6,6 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.gozar.app.model.Protocol
 
-object Latency {
-    /** Never probed. */
-    const val UNTESTED = -1
-
-    /** Probed and unreachable. */
-    const val FAILED = -2
-
-    /** Sort weight so healthy servers rise, untested follow, dead sink. */
-    const val UNTESTED_WEIGHT = 900_000
-    const val FAILED_WEIGHT = 999_999
-}
-
 @Entity(
     tableName = "sources",
     indices = [Index(value = ["url"], unique = true)],
@@ -80,11 +68,4 @@ data class ServerEntity(
     val protocolEnum: Protocol?
         get() = runCatching { Protocol.valueOf(protocol) }.getOrNull()
 
-    companion object {
-        fun weightFor(latency: Int): Int = when {
-            latency > 0 -> latency
-            latency == Latency.UNTESTED -> Latency.UNTESTED_WEIGHT
-            else -> Latency.FAILED_WEIGHT
-        }
-    }
 }
