@@ -1,7 +1,6 @@
 package com.gozar.app.net
 
 import com.gozar.app.data.GozarDatabase
-import com.gozar.app.data.Latency
 import com.gozar.app.data.LatencyResult
 import com.gozar.app.model.Protocol
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +51,6 @@ class LatencyTester(
                         LatencyResult(
                             id = outcome.id,
                             latency = outcome.latencyMs,
-                            weight = Latency.weightFor(outcome.latencyMs),
                             domesticEntry = outcome.domesticEntry,
                         )
                     },

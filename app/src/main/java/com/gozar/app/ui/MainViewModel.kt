@@ -309,12 +309,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectFastest() {
         viewModelScope.launch {
-            val fastest = database.serverDao().fastest()
+            val fastest = database.serverDao().fastestProven()
             if (fastest == null) {
                 emitToast(getApplication<Application>().getString(com.gozar.app.R.string.error_no_server))
             } else {
                 settingsRepository.setSelectedServer(fastest.id)
-                emitToast("${fastest.name} · ${fastest.latency} ms")
+                emitToast("${fastest.name} · ${fastest.realDelay} ms")
             }
         }
     }

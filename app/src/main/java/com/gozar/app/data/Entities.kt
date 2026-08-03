@@ -52,7 +52,17 @@ data class ServerEntity(
     val raw: String,
     val sourceId: Long = 0,
     val sourceName: String = "",
+    /** TCP handshake to the server's address; cheap, and only a reachability check. */
     val latency: Int = Latency.UNTESTED,
+    /**
+     * A real request timed through this proxy, over the user's own connection.
+     *
+     * This is what decides the ranking when it is known. A handshake proves
+     * something is listening on the port, which scraped lists are full of;
+     * only a request that actually came back proves the proxy works.
+     */
+    @ColumnInfo(defaultValue = "-1")
+    val realDelay: Int = Latency.UNTESTED,
     val lastTested: Long = 0,
     val favorite: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
@@ -67,9 +77,9 @@ data class ServerEntity(
     @ColumnInfo(defaultValue = "0")
     val domesticEntry: Boolean = false,
     /**
-     * Denormalised ordering key, maintained alongside [latency]. Keeping it as a
-     * plain indexed column lets "fastest first" be an index scan instead of a
-     * CASE expression over every row.
+     * Denormalised ordering key, kept in step with [Latency.rank] by the DAO.
+     * Keeping it as a plain indexed column lets "fastest first" be an index
+     * scan instead of a CASE expression over every row.
      */
     @ColumnInfo(defaultValue = "900000")
     val sortWeight: Int = Latency.UNTESTED_WEIGHT,
@@ -77,4 +87,9 @@ data class ServerEntity(
     val protocolEnum: Protocol?
         get() = runCatching { Protocol.valueOf(protocol) }.getOrNull()
 
+    /** What the list shows: the measurement that was actually earned. */
+    val shownLatency: Int get() = if (realDelay != Latency.UNTESTED) realDelay else latency
+
+    /** A real request has gone through this proxy and come back. */
+    val proven: Boolean get() = realDelay > 0
 }

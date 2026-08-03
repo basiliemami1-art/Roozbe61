@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SourceEntity::class, ServerEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class GozarDatabase : RoomDatabase() {
@@ -48,6 +48,19 @@ abstract class GozarDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the delay measured through the proxy. Written out rather than
+         * destructive: the handshake results in `latency` still narrow the field
+         * for the next measurement pass, and re-earning them takes minutes.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE servers ADD COLUMN realDelay INTEGER NOT NULL DEFAULT -1",
+                )
+            }
+        }
+
         @Volatile
         private var instance: GozarDatabase? = null
 
@@ -57,7 +70,7 @@ abstract class GozarDatabase : RoomDatabase() {
                 GozarDatabase::class.java,
                 "gozar.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

@@ -102,6 +102,72 @@ object SingBoxConfig {
         return pretty.encodeToString(JsonObject.serializer(), root)
     }
 
+    /**
+     * A core whose only job is to measure.
+     *
+     * No TUN, no local inbound, nothing routed: every candidate is just an
+     * outbound, and the Clash API dials through whichever one it is asked
+     * about. That is the whole point — a handshake to the server's port tells
+     * you something answered, while this puts a real request through the proxy
+     * over the user's own connection and times it.
+     *
+     * WireGuard is deliberately absent from [candidates]: it is configured as an
+     * endpoint rather than an outbound, and the Clash API resolves tags through
+     * the outbound manager only, so those tags would come back 404.
+     *
+     * @param candidates tag to config. Tags must match what the caller queries.
+     */
+    fun buildTester(
+        candidates: List<Pair<String, ProxyConfig>>,
+        settings: Settings,
+        clashApiPort: Int,
+    ): String {
+        val root = buildJsonObject {
+            putJsonObject("log") {
+                put("level", "error")
+                put("timestamp", false)
+            }
+            putJsonObject("dns") {
+                putJsonArray("servers") {
+                    add(
+                        buildJsonObject {
+                            put("type", "local")
+                            put("tag", DNS_LOCAL_TAG)
+                        },
+                    )
+                }
+                put("final", DNS_LOCAL_TAG)
+            }
+            putJsonArray("inbounds") {}
+            putJsonArray("outbounds") {
+                add(
+                    buildJsonObject {
+                        put("type", "direct")
+                        put("tag", DIRECT_TAG)
+                    },
+                )
+                for ((tag, proxy) in candidates) {
+                    // One unbuildable config must not cost the whole sweep.
+                    runCatching { buildOutbound(proxy, tag) }.getOrNull()?.let { add(it) }
+                }
+            }
+            putJsonObject("route") {
+                put("final", DIRECT_TAG)
+                put("auto_detect_interface", true)
+                putJsonObject("default_domain_resolver") {
+                    put("server", DNS_LOCAL_TAG)
+                    if (!settings.ipv6) put("strategy", "ipv4_only")
+                }
+            }
+            putJsonObject("experimental") {
+                putJsonObject("clash_api") {
+                    put("external_controller", "127.0.0.1:$clashApiPort")
+                }
+            }
+        }
+        return pretty.encodeToString(JsonObject.serializer(), root)
+    }
+
     // ------------------------------------------------------------------ DNS
 
     private fun buildDns(settings: Settings): JsonObject = buildJsonObject {

@@ -408,7 +408,7 @@ private fun ConnectScreen(state: AppState) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Chip(active.protocol, tint = Violet)
                     if (active.domesticEntry) Chip(text.domesticEntry, tint = Amber)
-                    LatencyPill(active.latency)
+                    LatencyPill(active.shownLatency, proven = active.proven)
                 }
             }
         }
@@ -424,7 +424,7 @@ private fun ConnectScreen(state: AppState) {
             )
             StatTile(
                 text.tileWorking,
-                servers.count { it.latency > 0 }.toString(),
+                servers.count { it.proven }.toString(),
                 Mint,
                 Icons.Rounded.Bolt,
                 Modifier.weight(1f),
@@ -481,7 +481,7 @@ private fun ServersScreen(state: AppState) {
     Column(Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 22.dp)) {
         PageHeader(
             title = text.servers,
-            subtitle = text.serverCount.fill(all.size, all.count { it.latency > 0 }),
+            subtitle = text.serverCount.fill(all.size, all.count { it.proven }),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(
@@ -561,6 +561,12 @@ private fun ServersScreen(state: AppState) {
                         "${text.testing}  ${current.done}/${current.total}  ·  ${current.alive} ✓",
                         current.done.toFloat() / current.total.coerceAtLeast(1),
                         Mint,
+                    )
+
+                    is Busy.Measuring -> Triple(
+                        "${text.measuring}  ${current.done}/${current.total}  ·  ${current.alive} ✓",
+                        current.done.toFloat() / current.total.coerceAtLeast(1),
+                        Sky,
                     )
 
                     null -> Triple("", 0f, Violet)
@@ -645,7 +651,7 @@ private fun ServerRow(
                 }
             }
             Spacer(Modifier.width(10.dp))
-            LatencyPill(server.latency)
+            LatencyPill(server.shownLatency, proven = server.proven)
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     if (server.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,

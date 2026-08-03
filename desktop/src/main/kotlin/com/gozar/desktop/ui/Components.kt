@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -62,8 +63,13 @@ fun latencyColor(latency: Int): Color = when {
     else -> Rose
 }
 
+/**
+ * @param proven true when the number came from a real request through the
+ *   proxy rather than a handshake to its address. The two are worth telling
+ *   apart on screen: only one of them says the server actually works.
+ */
 @Composable
-fun LatencyPill(latency: Int, modifier: Modifier = Modifier) {
+fun LatencyPill(latency: Int, proven: Boolean = false, modifier: Modifier = Modifier) {
     val text = LocalStrings.current
     val color = if (latency == Latency.UNTESTED) {
         MaterialTheme.colorScheme.onSurfaceVariant
@@ -81,7 +87,16 @@ fun LatencyPill(latency: Int, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+            if (proven) {
+                Icon(
+                    Icons.Rounded.Verified,
+                    contentDescription = text.provenHint,
+                    tint = color,
+                    modifier = Modifier.size(11.dp),
+                )
+            } else {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+            }
             Text(
                 text = label,
                 color = color,

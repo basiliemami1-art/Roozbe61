@@ -8,13 +8,15 @@ import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
-/** One server's measured latency, used for batched writes. */
+/** One server's handshake result, used for batched writes. */
 data class LatencyResult(
     val id: Long,
     val latency: Int,
-    val weight: Int,
     val domesticEntry: Boolean,
 )
+
+/** One server's round trip measured through the proxy itself. */
+data class RealDelayResult(val id: Long, val delayMs: Int)
 
 @Dao
 interface SourceDao {
@@ -69,7 +71,7 @@ interface ServerDao {
         """
         SELECT * FROM servers
         WHERE (:search = '' OR name LIKE '%' || :search || '%' OR address LIKE '%' || :search || '%')
-          AND (:onlyWorking = 0 OR latency > 0)
+          AND (:onlyWorking = 0 OR realDelay > 0)
           AND (:onlyFavorite = 0 OR favorite = 1)
           AND (:onlyDomestic = 0 OR domesticEntry = 1)
           AND (:protocol = '' OR protocol = :protocol)
@@ -89,7 +91,12 @@ interface ServerDao {
     @Query("SELECT COUNT(*) FROM servers")
     fun observeCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM servers WHERE latency > 0")
+    /**
+     * "Working" means proven, not merely reachable. A server that answers a
+     * handshake and then carries nothing is exactly what this count should not
+     * be claiming as working.
+     */
+    @Query("SELECT COUNT(*) FROM servers WHERE realDelay > 0")
     fun observeWorkingCount(): Flow<Int>
 
     @Query("SELECT * FROM servers WHERE id = :id")
@@ -129,8 +136,8 @@ interface ServerDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(servers: List<ServerEntity>): List<Long>
 
-    @Query("UPDATE servers SET latency = :latency, sortWeight = :weight, lastTested = :time WHERE id = :id")
-    suspend fun updateLatency(id: Long, latency: Int, weight: Int, time: Long)
+    @Query("SELECT * FROM servers WHERE realDelay > 0 ORDER BY sortWeight ASC LIMIT 1")
+    suspend fun fastestProven(): ServerEntity?
 
     /**
      * Writes a whole batch in one transaction.
@@ -143,31 +150,72 @@ interface ServerDao {
     suspend fun updateLatencies(results: List<LatencyResult>) {
         val now = System.currentTimeMillis()
         for (result in results) {
-            updateProbeResult(
-                result.id,
-                result.latency,
-                result.weight,
-                now,
-                result.domesticEntry,
-            )
+            updateProbeResult(result.id, result.latency, now, result.domesticEntry)
         }
     }
 
+    /**
+     * The sortWeight expression here mirrors [com.gozar.app.data.Latency.rank]
+     * exactly, and the two have to be changed together. It is repeated in SQL
+     * rather than passed in because the weight depends on the *other* column —
+     * a handshake result must not overwrite a ranking already earned by a real
+     * request — and reading that back per row would cost a query each.
+     */
     @Query(
         """
         UPDATE servers
-        SET latency = :latency, sortWeight = :weight, lastTested = :time,
-            domesticEntry = :domestic
+        SET latency = :latency, lastTested = :time, domesticEntry = :domestic,
+            sortWeight = CASE
+                WHEN realDelay > 0 THEN realDelay
+                WHEN realDelay = -2 THEN 999999
+                WHEN :latency > 0 THEN 100000 + :latency
+                WHEN :latency = -1 THEN 900000
+                ELSE 999999
+            END
         WHERE id = :id
         """,
     )
     suspend fun updateProbeResult(
         id: Long,
         latency: Int,
-        weight: Int,
         time: Long,
         domestic: Boolean,
     )
+
+    /** Same mirror of [com.gozar.app.data.Latency.rank], from the other side. */
+    @Query(
+        """
+        UPDATE servers
+        SET realDelay = :realDelay, lastTested = :time,
+            sortWeight = CASE
+                WHEN :realDelay > 0 THEN :realDelay
+                WHEN :realDelay = -2 THEN 999999
+                WHEN latency > 0 THEN 100000 + latency
+                WHEN latency = -1 THEN 900000
+                ELSE 999999
+            END
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateRealDelay(id: Long, realDelay: Int, time: Long)
+
+    /** Written in one transaction, for the same reason as [updateLatencies]. */
+    @Transaction
+    suspend fun updateRealDelays(results: List<RealDelayResult>) {
+        val now = System.currentTimeMillis()
+        for (result in results) updateRealDelay(result.id, result.delayMs, now)
+    }
+
+    /** Candidates for the expensive stage: reachable, ranked by handshake. */
+    @Query(
+        """
+        SELECT * FROM servers
+        WHERE latency > 0 AND protocol != 'WIREGUARD'
+        ORDER BY latency ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun measureCandidates(limit: Int): List<ServerEntity>
 
     @Query("UPDATE servers SET favorite = NOT favorite WHERE id = :id")
     suspend fun toggleFavorite(id: Long)
@@ -175,7 +223,7 @@ interface ServerDao {
     @Query("DELETE FROM servers WHERE id = :id")
     suspend fun delete(id: Long)
 
-    @Query("DELETE FROM servers WHERE latency = -2 AND favorite = 0")
+    @Query("DELETE FROM servers WHERE (latency = -2 OR realDelay = -2) AND favorite = 0")
     suspend fun deleteDead(): Int
 
     @Query("DELETE FROM servers WHERE favorite = 0")

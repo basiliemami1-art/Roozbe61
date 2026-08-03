@@ -147,6 +147,8 @@
     <string name="error_no_server">Select a server first</string>
     <string name="trying_server">Trying server %1$d of %2$d — %3$s</string>
     <string name="trying_server_round">Trying %1$d of %2$d (round %3$d) — %4$s</string>
+    <string name="measuring_servers">Measuring %1$d servers through the proxy…</string>
+    <string name="measuring_progress">Measuring %1$d of %2$d</string>
     <string name="protocols">Protocols</string>
     <string name="protocols_all">All</string>
     <string name="protocols_hint">Leave everything unselected to use all of them</string>

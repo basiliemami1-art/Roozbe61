@@ -22,11 +22,19 @@ data class ServerRecord(
     val port: Int,
     val raw: String,
     val sourceName: String = "",
+    /** TCP handshake to the server's address; cheap, and only a reachability check. */
     val latency: Int = Latency.UNTESTED,
+    /** A real request timed through this proxy. Decides the ranking when known. */
+    val realDelay: Int = Latency.UNTESTED,
     val favorite: Boolean = false,
     val domesticEntry: Boolean = false,
 ) {
-    val sortWeight: Int get() = Latency.weightFor(latency)
+    val sortWeight: Int get() = Latency.rank(realDelay, latency)
+
+    /** What the list shows: the measurement that was actually earned. */
+    val shownLatency: Int get() = if (realDelay != Latency.UNTESTED) realDelay else latency
+
+    val proven: Boolean get() = realDelay > 0
 }
 
 @Serializable

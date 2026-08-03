@@ -268,7 +268,7 @@ private fun ServerRow(
     val accent = when {
         active -> Mint
         selected -> Violet
-        else -> latencyColor(server.latency)
+        else -> latencyColor(server.shownLatency)
     }
     val borderColor by animateColorAsState(
         targetValue = if (active) Mint else MaterialTheme.colorScheme.outlineVariant,
@@ -372,7 +372,7 @@ private fun ServerRow(
                     )
 
                     else -> LatencyPill(
-                        latency = server.latency,
+                        latency = server.shownLatency,
                         untestedLabel = stringResource(R.string.latency_untested),
                         timeoutLabel = stringResource(R.string.latency_timeout),
                     )

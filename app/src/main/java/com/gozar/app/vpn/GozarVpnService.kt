@@ -17,6 +17,7 @@ import com.gozar.app.data.ServerEntity
 import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
 import com.gozar.app.net.LatencyTester
+import com.gozar.app.net.RealDelay
 import com.gozar.app.net.Warp
 import com.gozar.app.parser.ConfigParser
 import io.nekohasekai.libbox.CommandServer
@@ -163,6 +164,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         val probePort = findFreePort()
         localProxyPort = probePort
         prepareCore()
+        measureShortlist(settings)
 
         val tried = HashSet<Long>()
         var round = 1
@@ -201,6 +203,67 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                 lastError = failure
             }
         }
+    }
+
+    /**
+     * Times a real request through the best few servers before choosing one.
+     *
+     * The handshake sweep only proves something is listening on the port, and
+     * scraped lists are full of servers that answer it and then carry nothing.
+     * So the shortlist is loaded into a core that has no TUN and no inbound —
+     * it only answers Clash API delay queries — and each candidate gets one
+     * HTTPS request put through it over the ordinary connection. That runs on
+     * the same command server the tunnel will use, one config reload earlier,
+     * so nothing extra has to be started.
+     *
+     * Best effort throughout: if any of it fails the connect loop still runs,
+     * just ranked on handshakes as before.
+     */
+    private suspend fun measureShortlist(settings: Settings) {
+        val shortlist = runCatching { database.serverDao().measureCandidates(REAL_TEST_SIZE) }
+            .getOrNull()
+            .orEmpty()
+            .filter { settings.allowsProtocol(it.protocol) }
+        if (shortlist.isEmpty()) return
+
+        val candidates = shortlist.mapNotNull { server ->
+            ConfigParser.parse(server.raw)?.let { server.id to it }
+        }
+        if (candidates.isEmpty()) return
+
+        val apiPort = findFreePort()
+        Diagnostics.log("measuring ${candidates.size} servers through the proxy")
+        VpnState.setProgress(getString(R.string.measuring_servers, candidates.size))
+
+        val outcomes = runCatching {
+            applyConfig(
+                SingBoxConfig.buildTester(
+                    candidates = candidates.map { (id, proxy) -> RealDelay.tagFor(id) to proxy },
+                    settings = settings,
+                    clashApiPort = apiPort,
+                ),
+            )
+            RealDelay.measureAll(
+                apiPort = apiPort,
+                candidates = candidates,
+                onResult = { outcome ->
+                    database.serverDao().updateRealDelay(
+                        outcome.id,
+                        outcome.delayMs,
+                        System.currentTimeMillis(),
+                    )
+                },
+                onProgress = { progress ->
+                    VpnState.setProgress(
+                        getString(R.string.measuring_progress, progress.done, progress.total),
+                    )
+                },
+            )
+        }.getOrElse { error ->
+            Diagnostics.log("measurement stage failed: ${error.message}")
+            emptyList()
+        }
+        Diagnostics.log("${outcomes.count { it.delayMs > 0 }} of ${candidates.size} answered")
     }
 
     /** @return null once the tunnel is verified, otherwise why it is not. */
@@ -258,10 +321,11 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         val delayMs = LatencyTester.measureTunnelDelay(probePort)
         if (delayMs > 0) {
             Diagnostics.log("OK ${server.name} — ${delayMs}ms through the tunnel")
-            database.serverDao().updateLatency(
+            // Recorded as a real delay, not a handshake: this number came from a
+            // request that actually went through the proxy.
+            database.serverDao().updateRealDelay(
                 id = server.id,
-                latency = delayMs,
-                weight = Latency.weightFor(delayMs),
+                realDelay = delayMs,
                 time = System.currentTimeMillis(),
             )
             VpnState.setStats(VpnState.stats.value.copy(delayMs = delayMs))
@@ -275,10 +339,11 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
     }
 
     private suspend fun markServerFailed(server: ServerEntity) {
-        database.serverDao().updateLatency(
+        // Also a real-delay result: the server was tried through the tunnel and
+        // carried nothing, which is worth more than any handshake it may pass.
+        database.serverDao().updateRealDelay(
             id = server.id,
-            latency = Latency.FAILED,
-            weight = Latency.weightFor(Latency.FAILED),
+            realDelay = Latency.FAILED,
             time = System.currentTimeMillis(),
         )
     }
@@ -500,6 +565,13 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         /** Pause between exhausted passes, so an outage is not hammered. */
         private const val RETRY_PAUSE_MS = 1_500L
+
+        /**
+         * How many of the best-pinged servers get a real request put through
+         * them before connecting. Each costs a handshake and an HTTPS round
+         * trip on the user's own connection, so this stays a shortlist.
+         */
+        private const val REAL_TEST_SIZE = 50
 
         @Volatile
         private var libboxReady = false

@@ -195,7 +195,7 @@ fun HomeScreen(
                     ) {
                         ProtocolChip(server.protocolEnum?.label ?: server.protocol)
                         LatencyPill(
-                            latency = server.latency,
+                            latency = server.shownLatency,
                             untestedLabel = stringResource(R.string.latency_untested),
                             timeoutLabel = stringResource(R.string.latency_timeout),
                         )

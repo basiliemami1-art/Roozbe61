@@ -5,10 +5,12 @@ import com.gozar.app.data.Latency
 import com.gozar.app.data.Settings
 import com.gozar.app.model.Protocol
 import com.gozar.app.net.Prober
+import com.gozar.app.net.RealDelay
 import com.gozar.app.net.SourceLoader
 import com.gozar.app.net.TunnelProbe
 import com.gozar.app.net.Warp
 import com.gozar.app.parser.ConfigParser
+import com.gozar.desktop.core.DelayTester
 import com.gozar.desktop.core.SingBoxProcess
 import com.gozar.desktop.core.SystemProxy
 import com.gozar.desktop.core.TrafficMonitor
@@ -48,7 +50,12 @@ enum class ServerFilter { ALL, WORKING, FAVORITE, DOMESTIC }
 
 sealed interface Busy {
     data class Refreshing(val done: Int, val total: Int, val source: String) : Busy
+
+    /** The cheap handshake sweep over everything. */
     data class Testing(val done: Int, val total: Int, val alive: Int) : Busy
+
+    /** The real request through each of the best few. */
+    data class Measuring(val done: Int, val total: Int, val alive: Int) : Busy
 }
 
 /**
@@ -78,6 +85,7 @@ class AppState(
 ) {
     private val workDir = File(System.getenv("LOCALAPPDATA") ?: ".", "Gozar/core")
     private val core = SingBoxProcess(workDir, SingBoxProcess.locate(), ::log)
+    private val tester = DelayTester(workDir, SingBoxProcess.locate(), ::log)
 
     private val _settings = MutableStateFlow(store.loadSettings())
     val settings: StateFlow<Settings> = _settings.asStateFlow()
@@ -168,7 +176,10 @@ class AppState(
             .filter {
                 when (filter) {
                     ServerFilter.ALL -> true
-                    ServerFilter.WORKING -> it.latency > 0
+                    // "Working" means proven, not merely reachable: a server
+                    // that answers a handshake and then carries nothing is
+                    // precisely what this filter exists to hide.
+                    ServerFilter.WORKING -> it.proven
                     ServerFilter.FAVORITE -> it.favorite
                     ServerFilter.DOMESTIC -> it.domesticEntry
                 }
@@ -369,7 +380,11 @@ class AppState(
                     },
                     onProgress = { _busy.value = Busy.Testing(it.done, it.total, it.alive) },
                 )
-                log("tested ${targets.size} servers, $answered answered")
+                log("pinged ${targets.size} servers, $answered answered")
+                // The handshake only narrows the field. What decides the order
+                // is the second stage, which times a real request through each
+                // of the best few over the user's own connection.
+                measureBest(byId, settings)
             } finally {
                 // A cancelled sweep still keeps everything it measured.
                 publishServers(byId.values, force = true)
@@ -380,9 +395,51 @@ class AppState(
         }
     }
 
+    /**
+     * Times a real request through the best few servers and re-ranks on that.
+     *
+     * Only a shortlist: each measurement is a full handshake plus an HTTPS
+     * request through the proxy, so doing it for the whole list would be slow
+     * and would spend real traffic. The handshake sweep is what narrows the
+     * field down to something worth spending that on.
+     */
+    private suspend fun measureBest(
+        byId: MutableMap<Long, ServerRecord>,
+        settings: Settings,
+    ) {
+        val shortlist = byId.values
+            .filter { it.latency > 0 && settings.allowsProtocol(it.protocol) }
+            .filter { RealDelay.testable(it.protocol) }
+            .sortedBy { it.latency }
+            .take(REAL_TEST_SIZE)
+        if (shortlist.isEmpty()) return
+
+        val candidates = shortlist.mapNotNull { server ->
+            ConfigParser.parse(server.raw)?.let { server.id to it }
+        }
+        if (candidates.isEmpty()) return
+
+        _busy.value = Busy.Measuring(0, candidates.size, 0)
+        log("measuring ${candidates.size} servers through the proxy")
+        val outcomes = tester.measure(
+            candidates = candidates,
+            settings = settings,
+            onResult = { outcome ->
+                byId[outcome.id]?.let { byId[outcome.id] = it.copy(realDelay = outcome.delayMs) }
+                publishServers(byId.values)
+            },
+            onProgress = { _busy.value = Busy.Measuring(it.done, it.total, it.alive) },
+        )
+        val working = outcomes.count { it.delayMs > 0 }
+        log("$working of ${candidates.size} carried a real request")
+    }
+
     fun cancelBusy() {
         busyJob?.cancel()
         busyJob = null
+        // The tester owns a child process; cancelling the job alone would
+        // orphan it, since its cleanup runs in the cancelled coroutine.
+        tester.stop()
         _busy.value = null
     }
 
@@ -621,10 +678,18 @@ class AppState(
      * Always run on the way out, and synchronously: a stale system proxy points
      * every browser on the machine at a port that is no longer listening.
      */
-    fun shutdown() = teardown()
+    fun shutdown() {
+        tester.stop()
+        teardown()
+    }
 
+    /**
+     * Records what a connect attempt learned. Both outcomes are real requests
+     * through the proxy, so they belong in [ServerRecord.realDelay] — the same
+     * scale the measurement stage writes, not the handshake one.
+     */
     private fun markLatency(id: Long, latency: Int) {
-        val updated = _servers.value.map { if (it.id == id) it.copy(latency = latency) else it }
+        val updated = _servers.value.map { if (it.id == id) it.copy(realDelay = latency) else it }
         _servers.value = updated
         store.saveServers(updated)
     }
@@ -636,7 +701,9 @@ class AppState(
     }
 
     fun removeDead() {
-        val updated = _servers.value.filterNot { it.latency == Latency.FAILED && !it.favorite }
+        val updated = _servers.value.filterNot {
+            !it.favorite && (it.latency == Latency.FAILED || it.realDelay == Latency.FAILED)
+        }
         _servers.value = updated
         store.saveServers(updated)
     }
@@ -655,6 +722,13 @@ class AppState(
         private const val DOMESTIC_ATTEMPTS = 3
         private const val RETRY_PAUSE_MS = 1_500L
         private const val PUBLISH_INTERVAL_MS = 400L
+
+        /**
+         * How many of the best-pinged servers get a real request put through
+         * them. Every one costs a handshake and an HTTPS round trip on the
+         * user's own connection, so this stays a shortlist.
+         */
+        private const val REAL_TEST_SIZE = 50
 
         private val UDP_PROTOCOLS = setOf(
             Protocol.HYSTERIA2.name,
