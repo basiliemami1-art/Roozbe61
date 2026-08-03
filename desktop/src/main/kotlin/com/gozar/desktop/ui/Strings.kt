@@ -1,0 +1,252 @@
+package com.gozar.desktop.ui
+
+import androidx.compose.runtime.staticCompositionLocalOf
+import java.util.Locale
+
+/**
+ * Every string the window shows, in both languages.
+ *
+ * Compose Desktop has no resource system like Android's, and a lookup by key
+ * would trade compile-time safety for nothing: this is one screen's worth of
+ * text, and a missing entry should be a build error rather than a blank label.
+ */
+data class Strings(
+    val appName: String,
+    val tagline: String,
+
+    // Navigation
+    val connect: String,
+    val servers: String,
+    val sources: String,
+    val settings: String,
+
+    // Connection
+    val statusConnected: String,
+    val statusConnecting: String,
+    val statusStopping: String,
+    val statusDisconnected: String,
+    val routedThroughProxy: String,
+    val clickToConnect: String,
+    val activeServer: String,
+    val noServerSelected: String,
+    val domesticEntry: String,
+    val domestic: String,
+
+    // Tiles
+    val tileServers: String,
+    val tileWorking: String,
+    val tileDelay: String,
+    val tileDownload: String,
+    val tileUpload: String,
+    val tileSession: String,
+
+    // Server list
+    val searchServers: String,
+    val filterAll: String,
+    val filterWorking: String,
+    val filterStarred: String,
+    val filterDomestic: String,
+    val fetchConfigs: String,
+    val testAll: String,
+    val removeDead: String,
+    val star: String,
+    val updatingSources: String,
+    val testing: String,
+    val cancel: String,
+
+    // Sources
+    val sourceHint: String,
+    val add: String,
+    val updateAll: String,
+    val restoreDefaults: String,
+    val delete: String,
+    val updatedAgo: String,
+    val configCount: String,
+    val quotaUsed: String,
+    val quotaUsedOnly: String,
+    val expired: String,
+    val daysLeft: String,
+
+    // Settings
+    val sectionRouting: String,
+    val bypassIran: String,
+    val bypassLan: String,
+    val blockAds: String,
+    val autoFastest: String,
+    val sectionAppearance: String,
+    val sectionLanguage: String,
+    val themeSystem: String,
+    val themeLight: String,
+    val themeDark: String,
+    val sectionDiagnostics: String,
+    val clear: String,
+    val nothingLogged: String,
+
+    // Latency pills and relative times
+    val untested: String,
+    val noReply: String,
+    val milliseconds: String,
+    val never: String,
+
+    // Tray
+    val trayShow: String,
+    val trayHide: String,
+    val trayDisconnect: String,
+    val trayConnect: String,
+    val trayQuit: String,
+) {
+    companion object {
+        val English = Strings(
+            appName = "Gozar",
+            tagline = "Free internet, simply",
+            connect = "Connect",
+            servers = "Servers",
+            sources = "Sources",
+            settings = "Settings",
+            statusConnected = "Connected",
+            statusConnecting = "Connecting…",
+            statusStopping = "Stopping…",
+            statusDisconnected = "Disconnected",
+            routedThroughProxy = "Windows is routed through this proxy",
+            clickToConnect = "Click to connect",
+            activeServer = "Active server",
+            noServerSelected = "No server selected",
+            domesticEntry = "domestic entry",
+            domestic = "domestic",
+            tileServers = "Servers",
+            tileWorking = "Working",
+            tileDelay = "Tunnel delay",
+            tileDownload = "Download",
+            tileUpload = "Upload",
+            tileSession = "Session",
+            searchServers = "Search servers…",
+            filterAll = "All",
+            filterWorking = "Working",
+            filterStarred = "Starred",
+            filterDomestic = "Domestic",
+            fetchConfigs = "Fetch configs",
+            testAll = "Test all",
+            removeDead = "Remove dead servers",
+            star = "Star",
+            updatingSources = "Updating sources",
+            testing = "Testing",
+            cancel = "Cancel",
+            sourceHint = "https://…  or  t.me/channel",
+            add = "Add",
+            updateAll = "Update all",
+            restoreDefaults = "Restore defaults",
+            delete = "Delete",
+            updatedAgo = "updated %s",
+            configCount = "%d configs",
+            quotaUsed = "%s of %s",
+            quotaUsedOnly = "%s used",
+            expired = "expired",
+            daysLeft = "%d days left",
+            sectionRouting = "Routing",
+            bypassIran = "Bypass Iranian sites",
+            bypassLan = "Bypass local network",
+            blockAds = "Block ads and trackers",
+            autoFastest = "Auto-pick the fastest server",
+            sectionAppearance = "Appearance",
+            sectionLanguage = "Language",
+            themeSystem = "System",
+            themeLight = "Light",
+            themeDark = "Dark",
+            sectionDiagnostics = "Diagnostics",
+            clear = "Clear",
+            nothingLogged = "Nothing recorded yet — try connecting once",
+            untested = "untested",
+            noReply = "no reply",
+            milliseconds = "%d ms",
+            never = "never",
+            trayShow = "Show window",
+            trayHide = "Hide window",
+            trayDisconnect = "Disconnect",
+            trayConnect = "Connect",
+            trayQuit = "Quit",
+        )
+
+        val Persian = Strings(
+            appName = "گذر",
+            tagline = "اینترنت آزاد، ساده",
+            connect = "اتصال",
+            servers = "سرورها",
+            sources = "منابع",
+            settings = "تنظیمات",
+            statusConnected = "متصل",
+            statusConnecting = "در حال اتصال…",
+            statusStopping = "در حال قطع…",
+            statusDisconnected = "قطع",
+            routedThroughProxy = "ترافیک ویندوز از این پروکسی عبور می‌کند",
+            clickToConnect = "برای اتصال کلیک کنید",
+            activeServer = "سرور فعال",
+            noServerSelected = "سروری انتخاب نشده",
+            domesticEntry = "ورودی داخلی",
+            domestic = "داخلی",
+            tileServers = "سرورها",
+            tileWorking = "سالم",
+            tileDelay = "تأخیر تونل",
+            tileDownload = "دریافت",
+            tileUpload = "ارسال",
+            tileSession = "این نشست",
+            searchServers = "جست‌وجوی سرور…",
+            filterAll = "همه",
+            filterWorking = "سالم",
+            filterStarred = "نشان‌شده",
+            filterDomestic = "داخلی",
+            fetchConfigs = "دریافت کانفیگ",
+            testAll = "تست همه",
+            removeDead = "حذف سرورهای مرده",
+            star = "نشان کردن",
+            updatingSources = "به‌روزرسانی منابع",
+            testing = "در حال تست",
+            cancel = "لغو",
+            sourceHint = "https://…  یا  t.me/channel",
+            add = "افزودن",
+            updateAll = "به‌روزرسانی همه",
+            restoreDefaults = "بازگرداندن پیش‌فرض‌ها",
+            delete = "حذف",
+            updatedAgo = "به‌روزرسانی %s پیش",
+            configCount = "%d کانفیگ",
+            quotaUsed = "%s از %s",
+            quotaUsedOnly = "%s مصرف شده",
+            expired = "منقضی شده",
+            daysLeft = "%d روز باقی‌مانده",
+            sectionRouting = "مسیریابی",
+            bypassIran = "عبور مستقیم سایت‌های ایرانی",
+            bypassLan = "عبور مستقیم شبکه محلی",
+            blockAds = "مسدودسازی تبلیغات و ردیاب‌ها",
+            autoFastest = "انتخاب خودکار سریع‌ترین سرور",
+            sectionAppearance = "ظاهر",
+            sectionLanguage = "زبان",
+            themeSystem = "سیستم",
+            themeLight = "روشن",
+            themeDark = "تیره",
+            sectionDiagnostics = "گزارش تشخیصی",
+            clear = "پاک کردن",
+            nothingLogged = "هنوز چیزی ثبت نشده — یک بار اتصال را امتحان کنید",
+            untested = "تست نشده",
+            noReply = "بی‌پاسخ",
+            milliseconds = "%d میلی‌ثانیه",
+            never = "هرگز",
+            trayShow = "نمایش پنجره",
+            trayHide = "پنهان کردن پنجره",
+            trayDisconnect = "قطع اتصال",
+            trayConnect = "اتصال",
+            trayQuit = "خروج",
+        )
+
+        fun forLanguage(tag: String): Strings = if (tag.startsWith("fa")) Persian else English
+    }
+}
+
+val LocalStrings = staticCompositionLocalOf { Strings.English }
+
+/**
+ * Fills a template's placeholders, always in `Locale.US`.
+ *
+ * The default locale is not safe here: on a Persian Windows `%d` renders as
+ * ۱۲۳ while every count built with `toString()` stays ASCII, so one screen
+ * would disagree with itself — and differently on each user's machine.
+ */
+fun String.fill(vararg args: Any?): String = String.format(Locale.US, this, *args)

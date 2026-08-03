@@ -11,6 +11,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.gozar.desktop.ui.GozarApp
+import com.gozar.desktop.ui.Strings
 import java.awt.Dimension
 
 fun main() = application {
@@ -26,22 +27,29 @@ fun main() = application {
         true
     }
 
+    // The tray lives outside the app's CompositionLocals, so it reads the
+    // language straight from settings.
+    val settings by state.settings.collectAsState()
+    val text = Strings.forLanguage(settings.language)
+
     Tray(
         icon = TrayIcon,
-        tooltip = when (status) {
-            ConnectionStatus.CONNECTED -> "Gozar — connected"
-            ConnectionStatus.CONNECTING -> "Gozar — connecting"
-            ConnectionStatus.STOPPING -> "Gozar — stopping"
-            ConnectionStatus.DISCONNECTED -> "Gozar — disconnected"
+        tooltip = "${text.appName} — " + when (status) {
+            ConnectionStatus.CONNECTED -> text.statusConnected
+            ConnectionStatus.CONNECTING -> text.statusConnecting
+            ConnectionStatus.STOPPING -> text.statusStopping
+            ConnectionStatus.DISCONNECTED -> text.statusDisconnected
         },
         onAction = { visible = true },
         menu = {
-            Item(if (visible) "Hide window" else "Show window") { visible = !visible }
-            Item(if (status == ConnectionStatus.CONNECTED) "Disconnect" else "Connect") {
+            Item(if (visible) text.trayHide else text.trayShow) { visible = !visible }
+            Item(
+                if (status == ConnectionStatus.CONNECTED) text.trayDisconnect else text.trayConnect,
+            ) {
                 if (status == ConnectionStatus.CONNECTED) state.stop() else state.connect()
             }
             Separator()
-            Item("Quit") {
+            Item(text.trayQuit) {
                 state.shutdown()
                 exitApplication()
             }
@@ -53,7 +61,7 @@ fun main() = application {
         // which is what a VPN client is expected to do.
         onCloseRequest = { visible = false },
         visible = visible,
-        title = "Gozar",
+        title = text.appName,
         state = rememberWindowState(width = 1040.dp, height = 720.dp),
     ) {
         window.minimumSize = Dimension(880, 620)

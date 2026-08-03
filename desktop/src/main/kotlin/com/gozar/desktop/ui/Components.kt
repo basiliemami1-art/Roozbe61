@@ -51,15 +51,16 @@ fun latencyColor(latency: Int): Color = when {
 
 @Composable
 fun LatencyPill(latency: Int, modifier: Modifier = Modifier) {
+    val text = LocalStrings.current
     val color = if (latency == Latency.UNTESTED) {
         MaterialTheme.colorScheme.onSurfaceVariant
     } else {
         latencyColor(latency)
     }
     val label = when {
-        latency > 0 -> "$latency ms"
-        latency == Latency.UNTESTED -> "untested"
-        else -> "no reply"
+        latency > 0 -> text.milliseconds.fill(latency)
+        latency == Latency.UNTESTED -> text.untested
+        else -> text.noReply
     }
     Surface(modifier, shape = RoundedCornerShape(50), color = color.copy(alpha = 0.14f)) {
         Text(
@@ -220,8 +221,8 @@ fun formatBytes(bytes: Long): String {
 
 fun formatSpeed(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
 
-fun formatRelative(timestamp: Long): String {
-    if (timestamp <= 0) return "never"
+fun formatRelative(timestamp: Long, neverLabel: String): String {
+    if (timestamp <= 0) return neverLabel
     val delta = (System.currentTimeMillis() - timestamp) / 1000
     return when {
         delta < 60 -> "${delta}s"

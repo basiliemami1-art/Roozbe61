@@ -323,9 +323,17 @@ class AppState(
     // ------------------------------------------------------------- Connection
 
     fun connect(serverId: Long = 0) {
-        if (_status.value != ConnectionStatus.DISCONNECTED) return
+        val previous = _status.value
+        // A connect or a disconnect already in flight owns the core; anything
+        // else would race it.
+        if (previous == ConnectionStatus.CONNECTING || previous == ConnectionStatus.STOPPING) return
         _status.value = ConnectionStatus.CONNECTING
         scope.launch {
+            // Clicking a different server while connected switches to it.
+            // Without this the click did nothing at all.
+            if (previous == ConnectionStatus.CONNECTED) {
+                withContext(Dispatchers.IO) { teardown() }
+            }
             try {
                 val connected = connectWithFailover(serverId)
                 _status.value = ConnectionStatus.CONNECTED
@@ -347,8 +355,14 @@ class AppState(
     private suspend fun connectWithFailover(requestedId: Long): ServerRecord {
         val settings = _settings.value
         val all = _servers.value
-        val preferredId = if (requestedId > 0) requestedId else settings.selectedServerId
-        val preferred = all.firstOrNull { it.id == preferredId }
+        // Same rule as Android: an explicit click always wins, and otherwise the
+        // last-used server is only pinned when the user has turned auto-pick off.
+        val preferredId = when {
+            requestedId > 0 -> requestedId
+            !settings.autoSelectFastest -> settings.selectedServerId
+            else -> 0L
+        }
+        val preferred = if (preferredId > 0) all.firstOrNull { it.id == preferredId } else null
         val best = all.sortedBy { it.sortWeight }.take(MAX_ATTEMPTS)
         // Domestic-entry servers are kept in reserve: during an international
         // cut they are the only ones reachable, and when routing is fine they
@@ -438,25 +452,34 @@ class AppState(
         _throughput.value = Throughput()
     }
 
-    fun stop() {
-        if (_status.value == ConnectionStatus.DISCONNECTED) return
-        _status.value = ConnectionStatus.STOPPING
+    /**
+     * Blocking: killing the core waits on the process, and restoring the system
+     * proxy shells out. Never call it straight from a click.
+     */
+    private fun teardown() {
         stopWatchingTraffic()
         SystemProxy.disable()
         core.stop()
         proxyPort = 0
         _delayMs.value = 0
-        _activeServerId.value = 0
-        _status.value = ConnectionStatus.DISCONNECTED
-        log("disconnected")
     }
 
-    /** Always run on the way out: a stale system proxy breaks all browsing. */
-    fun shutdown() {
-        stopWatchingTraffic()
-        SystemProxy.disable()
-        core.stop()
+    fun stop() {
+        if (_status.value == ConnectionStatus.DISCONNECTED) return
+        _status.value = ConnectionStatus.STOPPING
+        scope.launch {
+            withContext(Dispatchers.IO) { teardown() }
+            _activeServerId.value = 0
+            _status.value = ConnectionStatus.DISCONNECTED
+            log("disconnected")
+        }
     }
+
+    /**
+     * Always run on the way out, and synchronously: a stale system proxy points
+     * every browser on the machine at a port that is no longer listening.
+     */
+    fun shutdown() = teardown()
 
     private fun markLatency(id: Long, latency: Int) {
         val updated = _servers.value.map { if (it.id == id) it.copy(latency = latency) else it }
