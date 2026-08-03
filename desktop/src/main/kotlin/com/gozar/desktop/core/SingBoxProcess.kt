@@ -123,17 +123,51 @@ class SingBoxProcess(
             return ports
         }
 
+        private const val BINARY = "sing-box.exe"
+
         /**
-         * Looks for the bundled binary next to the installed app, then falls
-         * back to the layout used when running from Gradle.
+         * Every place the core could reasonably be, in order.
+         *
+         * Deliberately more than one: the packaged layout depends on how the
+         * Compose plugin lays out app resources, and getting that wrong means
+         * the core is simply absent — which shows up as every server in the
+         * list failing to connect, with nothing pointing at the real cause.
+         * Searching a few candidates and reporting all of them costs nothing
+         * and makes that failure name itself.
          */
-        fun locate(): File {
-            val packaged = System.getProperty("compose.application.resources.dir")
-            if (packaged != null) {
-                val candidate = File(packaged, "sing-box.exe")
-                if (candidate.exists()) return candidate
+        fun searchPath(): List<File> {
+            val paths = ArrayList<File>()
+            System.getProperty("compose.application.resources.dir")?.let { dir ->
+                paths += File(dir, BINARY)
+                paths += File(File(dir, "windows"), BINARY)
+                paths += File(File(dir).parentFile ?: File(dir), BINARY)
             }
-            return File("desktop/resources/windows/sing-box.exe").absoluteFile
+            // A jpackage image puts the runtime under the install directory, so
+            // its grandparent is the application root.
+            System.getProperty("java.home")?.let { home ->
+                val root = File(home).parentFile
+                if (root != null) {
+                    paths += File(root, BINARY)
+                    paths += File(File(root, "app"), BINARY)
+                    paths += File(File(root, "app/resources"), BINARY)
+                }
+            }
+            paths += File("desktop/resources/windows/$BINARY").absoluteFile
+            paths += File(BINARY).absoluteFile
+            return paths
+        }
+
+        fun locate(): File = searchPath().firstOrNull { it.isFile } ?: searchPath().first()
+
+        /** One line at startup, so the log answers "is the core there?" first. */
+        fun describeLocation(): String {
+            val found = searchPath().firstOrNull { it.isFile }
+            return if (found != null) {
+                "core: ${found.absolutePath} (${found.length() / 1_048_576} MB)"
+            } else {
+                "core NOT FOUND. Looked in:\n" +
+                    searchPath().joinToString("\n") { "  ${it.absolutePath}" }
+            }
         }
     }
 }

@@ -249,6 +249,21 @@ jobs:
           echo "::error title=Windows build failed::${SNIPPET}"
           exit 1
 
+      # The app is useless without the core, and a packaging layout that quietly
+      # drops it looks exactly like every server in the list being dead. Cheaper
+      # to fail here than to ship it.
+      - name: Verify the core is in the package
+        shell: bash
+        run: |
+          echo "--- app image contents"
+          find desktop/build/compose/binaries -name 'sing-box.exe' -printf '%p  %s bytes\n' || true
+          if ! find desktop/build/compose/binaries -name 'sing-box.exe' | grep -q .; then
+            echo "::error title=Core missing from package::sing-box.exe was not packaged into the app image. Check nativeDistributions.appResourcesRootDir and the resources/windows layout."
+            echo "--- what is in the app image"
+            find desktop/build/compose/binaries -maxdepth 6 -type d | head -40
+            exit 1
+          fi
+
       - name: Collect the installer
         shell: bash
         run: |

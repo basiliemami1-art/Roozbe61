@@ -148,6 +148,9 @@ class AppState(
     private val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US)
 
     init {
+        // First line in the log on purpose: without the core nothing can ever
+        // connect, and that failure otherwise looks like every server is dead.
+        log(SingBoxProcess.describeLocation())
         IranRanges.load()
         if (_servers.value.isEmpty() && _settings.value.autoUpdateSources) {
             refreshSources()
