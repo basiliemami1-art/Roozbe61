@@ -206,6 +206,10 @@ interface ServerDao {
         for (result in results) updateRealDelay(result.id, result.delayMs, now)
     }
 
+    /** Servers a real request has gone through and come back from. */
+    @Query("SELECT COUNT(*) FROM servers WHERE realDelay > 0 AND lastTested > :since")
+    suspend fun provenCount(since: Long): Int
+
     /** Candidates for the expensive stage: reachable, ranked by handshake. */
     @Query(
         """

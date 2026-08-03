@@ -220,6 +220,17 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
      * just ranked on handshakes as before.
      */
     private suspend fun measureShortlist(settings: Settings) {
+        // Skipped when the ranking is still fresh. The stage costs a request per
+        // server, which is half a minute the user would spend staring at a
+        // connect button — worth paying once, not on every connect.
+        val fresh = runCatching {
+            database.serverDao().provenCount(System.currentTimeMillis() - MEASUREMENT_TTL_MS)
+        }.getOrDefault(0)
+        if (fresh >= ENOUGH_PROVEN) {
+            Diagnostics.log("skipping measurement — $fresh servers measured recently")
+            return
+        }
+
         val shortlist = runCatching { database.serverDao().measureCandidates(REAL_TEST_SIZE) }
             .getOrNull()
             .orEmpty()
@@ -572,6 +583,12 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
          * trip on the user's own connection, so this stays a shortlist.
          */
         private const val REAL_TEST_SIZE = 50
+
+        /** Enough recently measured servers to connect without measuring again. */
+        private const val ENOUGH_PROVEN = 5
+
+        /** How long a measurement is trusted before it is worth redoing. */
+        private const val MEASUREMENT_TTL_MS = 6 * 60 * 60 * 1000L
 
         @Volatile
         private var libboxReady = false
