@@ -218,6 +218,8 @@ fun formatBytes(bytes: Long): String {
     }
 }
 
+fun formatSpeed(bytesPerSecond: Long): String = "${formatBytes(bytesPerSecond)}/s"
+
 fun formatRelative(timestamp: Long): String {
     if (timestamp <= 0) return "never"
     val delta = (System.currentTimeMillis() - timestamp) / 1000

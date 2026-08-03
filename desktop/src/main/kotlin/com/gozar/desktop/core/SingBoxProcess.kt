@@ -28,6 +28,11 @@ class SingBoxProcess(
     @Volatile
     private var process: Process? = null
 
+    /** Where the core publishes its byte counters; valid while it is running. */
+    @Volatile
+    var clashApiPort: Int = 0
+        private set
+
     val isRunning: Boolean get() = process?.isAlive == true
 
     /** @return the loopback port the core is listening on. */
@@ -36,12 +41,15 @@ class SingBoxProcess(
         require(binary.exists()) { "sing-box binary is missing at ${binary.absolutePath}" }
 
         val port = findFreePort()
+        val apiPort = findFreePort()
         val config = SingBoxConfig.build(
             proxy = proxy,
             settings = settings,
             localProxyPort = port,
             tun = false,
+            clashApiPort = apiPort,
         )
+        clashApiPort = apiPort
         workDir.mkdirs()
         val configFile = File(workDir, "config.json")
         configFile.writeText(config)
@@ -72,6 +80,7 @@ class SingBoxProcess(
     fun stop() {
         val running = process ?: return
         process = null
+        clashApiPort = 0
         runCatching {
             running.destroy()
             if (!running.waitFor(3, TimeUnit.SECONDS)) running.destroyForcibly()

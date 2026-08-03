@@ -39,12 +39,15 @@ object SingBoxConfig {
      *   whole system points at.
      * @param tun whether to create a TUN inbound. False on desktop, where the
      *   system proxy is used instead, so no driver and no elevation are needed.
+     * @param clashApiPort exposes the core's byte counters on loopback. Android
+     *   reads its throughput straight from libbox, so this is desktop-only.
      */
     fun build(
         proxy: ProxyConfig,
         settings: Settings,
         localProxyPort: Int? = null,
         tun: Boolean = true,
+        clashApiPort: Int? = null,
     ): String {
         val wireGuard = proxy.protocol == Protocol.WIREGUARD
         val root = buildJsonObject {
@@ -86,6 +89,13 @@ object SingBoxConfig {
                 putJsonObject("cache_file") {
                     put("enabled", true)
                     put("path", "cache.db")
+                }
+                if (clashApiPort != null) {
+                    // Bound to loopback with no external controller: this is a
+                    // byte counter for our own UI, not a remote control surface.
+                    putJsonObject("clash_api") {
+                        put("external_controller", "127.0.0.1:$clashApiPort")
+                    }
                 }
             }
         }

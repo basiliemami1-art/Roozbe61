@@ -10,6 +10,7 @@ import com.gozar.app.net.TunnelProbe
 import com.gozar.app.parser.ConfigParser
 import com.gozar.desktop.core.SingBoxProcess
 import com.gozar.desktop.core.SystemProxy
+import com.gozar.desktop.core.TrafficMonitor
 import com.gozar.desktop.data.ServerRecord
 import com.gozar.desktop.data.SourceRecord
 import com.gozar.desktop.data.Store
@@ -38,6 +39,14 @@ sealed interface Busy {
     data class Refreshing(val done: Int, val total: Int, val source: String) : Busy
     data class Testing(val done: Int, val total: Int, val alive: Int) : Busy
 }
+
+/** Per-second rates and the running totals for this session. */
+data class Throughput(
+    val upBytesPerSecond: Long = 0,
+    val downBytesPerSecond: Long = 0,
+    val upTotal: Long = 0,
+    val downTotal: Long = 0,
+)
 
 /**
  * All of the desktop app's state and behaviour.
@@ -86,7 +95,13 @@ class AppState(
     private val _log = MutableStateFlow<List<String>>(emptyList())
     val log: StateFlow<List<String>> = _log.asStateFlow()
 
+    /** Bytes moved in the last second, straight from the core's counters. */
+    private val _throughput = MutableStateFlow(Throughput())
+    val throughput: StateFlow<Throughput> = _throughput.asStateFlow()
+
     private var busyJob: Job? = null
+    private var trafficJob: Job? = null
+    private var monitor: TrafficMonitor? = null
     private var proxyPort = 0
 
     // ------------------------------------------------------------------- Log
@@ -380,6 +395,7 @@ class AppState(
                 log("system proxy set to 127.0.0.1:$port")
                 _settings.value = settings.copy(selectedServerId = server.id)
                 store.saveSettings(_settings.value)
+                watchTraffic()
                 return server
             }
             lastError = result.error ?: "no traffic"
@@ -390,9 +406,42 @@ class AppState(
         error("none of the ${candidates.size} servers carried traffic (${lastError ?: "unknown"})")
     }
 
+    /**
+     * Follows the core's `/traffic` stream for as long as it is up. The rates
+     * arrive already averaged over a second, so they are stored as sent and
+     * accumulated here for the session totals.
+     */
+    private fun watchTraffic() {
+        stopWatchingTraffic()
+        val port = core.clashApiPort
+        if (port <= 0) return
+        val watcher = TrafficMonitor(port)
+        monitor = watcher
+        trafficJob = scope.launch {
+            watcher.stream { sample ->
+                val previous = _throughput.value
+                _throughput.value = Throughput(
+                    upBytesPerSecond = sample.upBytes,
+                    downBytesPerSecond = sample.downBytes,
+                    upTotal = previous.upTotal + sample.upBytes,
+                    downTotal = previous.downTotal + sample.downBytes,
+                )
+            }
+        }
+    }
+
+    private fun stopWatchingTraffic() {
+        trafficJob?.cancel()
+        trafficJob = null
+        monitor?.shutdown()
+        monitor = null
+        _throughput.value = Throughput()
+    }
+
     fun stop() {
         if (_status.value == ConnectionStatus.DISCONNECTED) return
         _status.value = ConnectionStatus.STOPPING
+        stopWatchingTraffic()
         SystemProxy.disable()
         core.stop()
         proxyPort = 0
@@ -404,6 +453,7 @@ class AppState(
 
     /** Always run on the way out: a stale system proxy breaks all browsing. */
     fun shutdown() {
+        stopWatchingTraffic()
         SystemProxy.disable()
         core.stop()
     }

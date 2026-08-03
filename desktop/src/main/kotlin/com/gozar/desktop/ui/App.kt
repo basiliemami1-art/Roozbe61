@@ -149,7 +149,9 @@ private fun ConnectScreen(state: AppState) {
     val delay by state.delayMs.collectAsState()
     val servers by state.servers.collectAsState()
     val activeId by state.activeServerId.collectAsState()
+    val traffic by state.throughput.collectAsState()
     val active = servers.firstOrNull { it.id == activeId }
+    val connected = status == ConnectionStatus.CONNECTED
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
@@ -249,6 +251,28 @@ private fun ConnectScreen(state: AppState) {
             StatTile(
                 "Tunnel delay",
                 if (delay > 0) "$delay ms" else "—",
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                Modifier.weight(1f),
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatTile(
+                "Download",
+                if (connected) formatSpeed(traffic.downBytesPerSecond) else "—",
+                Mint,
+                Modifier.weight(1f),
+            )
+            StatTile(
+                "Upload",
+                if (connected) formatSpeed(traffic.upBytesPerSecond) else "—",
+                Violet,
+                Modifier.weight(1f),
+            )
+            StatTile(
+                "Session",
+                if (connected) formatBytes(traffic.downTotal + traffic.upTotal) else "—",
                 MaterialTheme.colorScheme.onSurfaceVariant,
                 Modifier.weight(1f),
             )
