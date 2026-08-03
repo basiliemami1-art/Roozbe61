@@ -71,6 +71,9 @@ class Store(private val dir: File) {
     private val sourcesFile = File(dir, "sources.json")
     private val settingsFile = File(dir, "settings.json")
 
+    /** Built-in URLs already offered, so deletions survive an upgrade. */
+    private val seenFile = File(dir, "seeded-sources.json")
+
     init {
         dir.mkdirs()
     }
@@ -79,11 +82,34 @@ class Store(private val dir: File) {
 
     fun saveServers(servers: List<ServerRecord>) = write(serversFile, servers)
 
-    fun loadSources(): List<SourceRecord> = read(sourcesFile) {
-        DefaultSources.all.map { spec ->
-            SourceRecord(name = spec.name, url = spec.url, kind = spec.kind.name)
+    /**
+     * The stored list, plus any built-in source this install has not seen.
+     *
+     * Without the second half an upgrade would never deliver a newly shipped
+     * source. The seen URLs are recorded separately so a source the user
+     * deleted stays deleted instead of reappearing on the next launch.
+     */
+    fun loadSources(): List<SourceRecord> {
+        val stored = read<SourceRecord>(sourcesFile) { emptyList() }
+        if (stored.isEmpty()) {
+            val defaults = DefaultSources.all.map { it.toRecord() }
+            saveSources(defaults)
+            markSeen(DefaultSources.all.map { it.url })
+            return defaults
         }
+        val seen = read<String>(seenFile) { emptyList() }.toSet()
+        val fresh = DefaultSources.all.filterNot { it.url in seen }.map { it.toRecord() }
+        if (fresh.isEmpty()) return stored
+        val known = stored.mapTo(HashSet()) { it.url }
+        val merged = stored + fresh.filterNot { it.url in known }
+        markSeen(DefaultSources.all.map { it.url })
+        saveSources(merged)
+        return merged
     }
+
+    private fun markSeen(urls: List<String>) = write(seenFile, urls)
+
+    private fun SourceSpec.toRecord() = SourceRecord(name = name, url = url, kind = kind.name)
 
     fun saveSources(sources: List<SourceRecord>) = write(sourcesFile, sources)
 

@@ -4,7 +4,7 @@ package com.gozar.app.data
  * A place configs are pulled from.
  *
  * [url] is either a direct subscription endpoint or a Telegram channel handle
- * (`tg:channel`), which [com.gozar.app.net.SourceFetcher] resolves to the
+ * (`tg:channel`), which [com.gozar.app.net.SourceLoader] resolves to the
  * public `t.me/s/<channel>` web preview.
  */
 data class SourceSpec(
@@ -17,8 +17,14 @@ data class SourceSpec(
 
 /**
  * The shipped source list. Every entry here was probed and returned live configs
- * when this list was assembled (2026-08-01); dead sources are pruned rather than
- * left in, because a failing source costs a network round trip on every refresh.
+ * when this list was assembled (2026-08-01, re-verified 2026-08-03); dead sources
+ * are pruned rather than left in, because a failing source costs a network round
+ * trip on every refresh.
+ *
+ * A source also has to *add* something. These collectors copy heavily from one
+ * another, so candidates are measured by the endpoints they contribute that no
+ * other shipped source already carries — several of the largest ones turned out
+ * to be 99% duplicates and are deliberately absent.
  *
  * Users can add, disable or delete any of these from the Sources screen.
  */
@@ -55,6 +61,15 @@ object DefaultSources {
         sub("Delta-Kronecker", "https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/main/config/all_configs.txt"),
         sub("Freedom-V2Ray", "https://raw.githubusercontent.com/MahanKenway/Freedom-V2Ray/main/configs/mix.txt"),
         sub("DukeMehdi — lite", "https://raw.githubusercontent.com/DukeMehdi/FreeList-V2ray-Configs/main/Configs/Lite-DukeMehdi-Configs.txt"),
+        // Added 2026-08-03. The percentage is the share of endpoints that no
+        // other source in this list already carries, measured against the whole
+        // list on that date. Together these add roughly 6,300 servers.
+        sub("mheidari98 .proxy", "https://raw.githubusercontent.com/mheidari98/.proxy/main/all"), // 13.2k, 25% new
+        sub("LalatinaHub Mineral", "https://raw.githubusercontent.com/LalatinaHub/Mineral/master/result/nodes"), // 2.1k, 63% new
+        sub("AzadNet", "https://raw.githubusercontent.com/AzadNetCH/Clash/main/AzadNet.txt"), // 1.4k, 78% new
+        sub("ndsphonemy — speed", "https://raw.githubusercontent.com/ndsphonemy/proxy-sub/main/speed.txt"), // 90% new
+        sub("4n0nymou3 fetcher", "https://raw.githubusercontent.com/4n0nymou3/multi-proxy-config-fetcher/main/configs/proxy_configs.txt"),
+        sub("ZywChannel", "https://raw.githubusercontent.com/ZywChannel/free/main/sub"), // small, 50% new
     )
 
     val telegram: List<SourceSpec> = listOf(
@@ -76,6 +91,12 @@ object DefaultSources {
         tg("configV2rayForFree"),
         tg("proxystore11"),
         tg("FreeVlessVpn"),
+        // Added 2026-08-03; all 18 above were re-checked the same day and still
+        // post configs, so none were dropped.
+        tg("oneclickvpnkeys"),
+        tg("v2rayNG_Matsuri"),
+        tg("frev2rayng"),
+        tg("ShadowsocksM"),
     )
 
     val all: List<SourceSpec> = subscriptions + telegram

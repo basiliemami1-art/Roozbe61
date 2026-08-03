@@ -4,7 +4,9 @@ import android.util.Log
 import com.gozar.app.data.DefaultSources
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.ServerEntity
+import com.gozar.app.data.SettingsRepository
 import com.gozar.app.data.SourceEntity
+import com.gozar.app.data.SourceSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -128,7 +130,7 @@ class SourceFetcher(
 
     companion object {
 
-        private fun defaults() = DefaultSources.all.map { spec ->
+        private fun entitiesFor(specs: List<SourceSpec>) = specs.map { spec ->
             SourceEntity(
                 name = spec.name,
                 url = spec.url,
@@ -138,15 +140,32 @@ class SourceFetcher(
             )
         }
 
-        /** Populates the source table on first launch. */
-        suspend fun seedDefaults(db: GozarDatabase) = withContext(Dispatchers.IO) {
-            if (db.sourceDao().count() > 0) return@withContext
-            db.sourceDao().insertAll(defaults())
+        /**
+         * Adds every built-in source this install has not been offered yet.
+         *
+         * Seeding only into an empty table would mean an upgrade never delivers
+         * a newly shipped source, and re-inserting the whole list every launch
+         * would resurrect the ones the user deleted. So the URLs already offered
+         * are remembered and only genuinely new ones are inserted. The one
+         * unavoidable exception is the first launch after this change, which has
+         * no record to consult.
+         */
+        suspend fun seedDefaults(
+            db: GozarDatabase,
+            prefs: SettingsRepository,
+        ) = withContext(Dispatchers.IO) {
+            val seeded = prefs.seededSources()
+            val all = DefaultSources.all
+            val fresh = all.filterNot { it.url in seeded }
+            // The url column is uniquely indexed and inserts ignore conflicts,
+            // so anything already present is left untouched.
+            if (fresh.isNotEmpty()) db.sourceDao().insertAll(entitiesFor(fresh))
+            prefs.markSourcesSeeded(all.mapTo(HashSet()) { it.url })
         }
 
         /** Restores any built-in source the user deleted, without touching theirs. */
         suspend fun restoreDefaults(db: GozarDatabase) = withContext(Dispatchers.IO) {
-            db.sourceDao().insertAll(defaults())
+            db.sourceDao().insertAll(entitiesFor(DefaultSources.all))
         }
     }
 }

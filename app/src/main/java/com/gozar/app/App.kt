@@ -26,10 +26,10 @@ class App : Application() {
             IranRanges.load()
 
             val database = GozarDatabase.get(this@App)
-            SourceFetcher.seedDefaults(database)
+            val settings = SettingsRepository(this@App)
+            SourceFetcher.seedDefaults(database, settings)
 
-            val language = SettingsRepository(this@App).current().language
-            applyLanguage(language)
+            applyLanguage(settings.current().language)
         }
     }
 

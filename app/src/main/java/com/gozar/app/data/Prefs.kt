@@ -39,7 +39,16 @@ class SettingsRepository(private val context: Context) {
         val TEST_TIMEOUT = intPreferencesKey("test_timeout")
         val MAX_SERVERS = intPreferencesKey("max_servers")
         val ONBOARDED = booleanPreferencesKey("onboarded")
+
+        // Bookkeeping rather than a user setting, so it is not part of Settings.
+        val SEEDED_SOURCES = stringSetPreferencesKey("seeded_sources")
     }
+
+    /** Built-in source URLs this install has already been offered. */
+    suspend fun seededSources(): Set<String> =
+        context.dataStore.data.first()[Keys.SEEDED_SOURCES] ?: emptySet()
+
+    suspend fun markSourcesSeeded(urls: Set<String>) = put(Keys.SEEDED_SOURCES, urls)
 
     val settings: Flow<Settings> = context.dataStore.data.map { it.toSettings() }
 
