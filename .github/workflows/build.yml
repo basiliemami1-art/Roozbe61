@@ -1,4 +1,4 @@
-name: Build APK
+name: Build
 
 on:
   push:
@@ -264,28 +264,41 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish to the rolling "latest" release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest build
-          files: dist/*.msi
-          prerelease: true
-          make_latest: false
+  # ---------------------------------------------------------------- Release
+  #
+  # Artifacts need a signed-in GitHub account to download, which makes them
+  # useless for handing someone an APK. A release asset is a plain URL.
+  #
+  # One job publishes both platforms: when each job wrote to the rolling tag
+  # itself they raced to create the same release. It still runs when the
+  # Windows job fails, so a broken desktop build never withholds the APK.
+  release:
+    needs: [build, windows]
+    if: always() && github.ref == 'refs/heads/main' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
 
-      # Artifacts need a signed-in GitHub account to download, which makes them
-      # useless for handing someone an APK. A release asset is a plain URL.
-      - name: Publish to the rolling "latest" release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+    steps:
+      - name: Download every artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: List what will be published
+        run: find dist -type f -printf '%p  %s bytes\n'
+
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest build
           body: |
             Automatic build of `${{ github.sha }}`.
 
-            Install **app-arm64-v8a-release.apk** unless you know you need another ABI.
-          files: app/build/outputs/apk/release/*.apk
+            **Android** — install `app-arm64-v8a-release.apk` unless you know
+            you need another ABI.
+            **Windows** — install `Gozar-1.0.0.msi`; no administrator rights
+            are needed.
+          files: |
+            dist/gozar-apk/*.apk
+            dist/gozar-windows/*.msi
           prerelease: true
           make_latest: false

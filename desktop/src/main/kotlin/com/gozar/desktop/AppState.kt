@@ -89,16 +89,18 @@ class AppState(
     private var busyJob: Job? = null
     private var proxyPort = 0
 
+    // ------------------------------------------------------------------- Log
+
+    // Declared above `init`: the refresh it kicks off logs from another thread,
+    // and a property initialised further down is still null at that point.
+    private val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US)
+
     init {
         IranRanges.load()
         if (_servers.value.isEmpty() && _settings.value.autoUpdateSources) {
             refreshSources()
         }
     }
-
-    // ------------------------------------------------------------------- Log
-
-    private val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US)
 
     @Synchronized
     fun log(message: String) {

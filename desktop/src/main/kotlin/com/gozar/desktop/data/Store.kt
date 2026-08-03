@@ -6,7 +6,9 @@ import com.gozar.app.data.Settings
 import com.gozar.app.data.SourceSpec
 import com.gozar.app.data.ThemeMode
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import java.io.File
 
 @Serializable
@@ -135,10 +137,14 @@ class Store(private val dir: File) {
         }
     }
 
+    // The serializer is built explicitly rather than left to the reified
+    // `encodeToString(value)` extension, which needs its own import and
+    // otherwise resolves to the two-argument overload with a confusing error.
     private inline fun <reified T> read(file: File, fallback: () -> List<T>): List<T> =
         runCatching {
             if (!file.exists()) fallback()
-            else json.decodeFromString<List<T>>(file.readText()).ifEmpty { fallback() }
+            else json.decodeFromString(ListSerializer(serializer<T>()), file.readText())
+                .ifEmpty { fallback() }
         }.getOrElse { fallback() }
 
     private inline fun <reified T> write(file: File, values: List<T>) {
@@ -146,7 +152,7 @@ class Store(private val dir: File) {
             // Written beside the target and moved into place, so a crash
             // mid-write cannot leave a truncated file behind.
             val temp = File(file.parentFile, "${file.name}.tmp")
-            temp.writeText(json.encodeToString(values))
+            temp.writeText(json.encodeToString(ListSerializer(serializer<T>()), values))
             temp.copyTo(file, overwrite = true)
             temp.delete()
         }
