@@ -99,7 +99,16 @@ class SourceFetcher(
 
     /** @return (newly inserted, total parsed) */
     private suspend fun refreshOne(source: SourceEntity): Pair<Int, Int> {
-        val configs = SourceLoader.fetch(source.url)
+        val result = SourceLoader.load(source.url)
+        val configs = result.configs
+
+        // Recorded even when the body turns out to be empty: a lapsed paid
+        // subscription returns nothing, and the expiry date is the explanation.
+        result.info?.let {
+            db.sourceDao().markSubscription(
+                source.id, it.upload, it.download, it.total, it.expiresAt,
+            )
+        }
 
         if (configs.isEmpty()) {
             db.sourceDao().markUpdated(source.id, System.currentTimeMillis(), 0, "no configs found")

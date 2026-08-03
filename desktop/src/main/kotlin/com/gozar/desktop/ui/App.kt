@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gozar.app.data.SubscriptionInfo
 import com.gozar.app.data.ThemeMode
 import com.gozar.app.model.Flags
 import com.gozar.desktop.AppState
@@ -524,6 +525,7 @@ private fun SourcesScreen(state: AppState) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            source.subscription?.let { SubscriptionStrip(it) }
                         }
                         Switch(
                             checked = source.enabled,
@@ -536,6 +538,54 @@ private fun SourcesScreen(state: AppState) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Traffic and expiry for a paid subscription, from the `subscription-userinfo`
+ * header. Only drawn when the panel reported something — a free link sends no
+ * header, and a bar reading zero would be worse than none at all.
+ */
+@Composable
+private fun SubscriptionStrip(info: SubscriptionInfo) {
+    val days = info.daysLeft()
+    val fraction = info.fractionUsed
+    val tint = when {
+        days != null && days < 0 -> Rose
+        fraction != null && fraction > 0.9f -> Rose
+        (days != null && days <= 3) || (fraction != null && fraction > 0.75f) -> Amber
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    Spacer(Modifier.height(6.dp))
+    if (fraction != null) {
+        LinearProgressIndicator(
+            progress = { fraction },
+            color = tint,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+        )
+        Spacer(Modifier.height(4.dp))
+    }
+    val quota = when {
+        info.total > 0 -> "${formatBytes(info.used)} of ${formatBytes(info.total)}"
+        info.used > 0 -> "${formatBytes(info.used)} used"
+        else -> null
+    }
+    val expiry = when {
+        days == null -> null
+        days < 0 -> "expired"
+        else -> "$days days left"
+    }
+    val label = listOfNotNull(quota, expiry).joinToString("  •  ")
+    if (label.isNotEmpty()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

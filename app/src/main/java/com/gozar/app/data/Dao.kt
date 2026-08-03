@@ -43,6 +43,18 @@ interface SourceDao {
     @Query("UPDATE sources SET lastUpdated = :time, configCount = :count, lastError = :error WHERE id = :id")
     suspend fun markUpdated(id: Long, time: Long, count: Int, error: String?)
 
+    @Query(
+        "UPDATE sources SET upload = :upload, download = :download, " +
+            "total = :total, expiresAt = :expiresAt WHERE id = :id",
+    )
+    suspend fun markSubscription(
+        id: Long,
+        upload: Long,
+        download: Long,
+        total: Long,
+        expiresAt: Long,
+    )
+
     @Query("DELETE FROM sources WHERE id = :id")
     suspend fun delete(id: Long)
 

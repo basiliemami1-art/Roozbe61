@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SourceEntity::class, ServerEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class GozarDatabase : RoomDatabase() {
@@ -37,6 +37,17 @@ abstract class GozarDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the quota a paid subscription reports about itself. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (column in listOf("upload", "download", "total", "expiresAt")) {
+                    db.execSQL(
+                        "ALTER TABLE sources ADD COLUMN $column INTEGER NOT NULL DEFAULT 0",
+                    )
+                }
+            }
+        }
+
         @Volatile
         private var instance: GozarDatabase? = null
 
@@ -46,7 +57,7 @@ abstract class GozarDatabase : RoomDatabase() {
                 GozarDatabase::class.java,
                 "gozar.db",
             )
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

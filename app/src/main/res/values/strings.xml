@@ -65,6 +65,10 @@
     <string name="last_updated">آخرین به‌روزرسانی: %1$s</string>
     <string name="never_updated">هرگز</string>
     <string name="configs_from_source">%1$d کانفیگ</string>
+    <string name="quota_used">%1$s از %2$s</string>
+    <string name="quota_used_only">%1$s مصرف شده</string>
+    <string name="days_left">%1$d روز باقی‌مانده</string>
+    <string name="subscription_expired">منقضی شده</string>
     <string name="built_in_sources">منابع پیش‌فرض</string>
     <string name="custom_sources">منابع شما</string>
     <string name="restore_default_sources">بازگرداندن منابع پیش‌فرض</string>

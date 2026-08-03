@@ -1,6 +1,7 @@
 package com.gozar.app.net
 
 import com.gozar.app.data.SourceSpec
+import com.gozar.app.data.SubscriptionInfo
 import com.gozar.app.model.ProxyConfig
 import com.gozar.app.parser.Codecs
 import com.gozar.app.parser.ConfigParser
@@ -20,16 +21,24 @@ object SourceLoader {
         else -> url
     }
 
-    suspend fun fetch(url: String): List<ProxyConfig> = withContext(Dispatchers.IO) {
-        val body = download(resolveUrl(url))
+    /** Configs, plus whatever the panel said about the subscription itself. */
+    data class Result(val configs: List<ProxyConfig>, val info: SubscriptionInfo?)
+
+    suspend fun fetch(url: String): List<ProxyConfig> = load(url).configs
+
+    suspend fun load(url: String): Result = withContext(Dispatchers.IO) {
+        val (body, info) = download(resolveUrl(url))
         val text = if (Codecs.looksBase64(body)) Codecs.decodeBase64(body) ?: body else body
-        ConfigParser.parseMany(text)
+        Result(ConfigParser.parseMany(text), info)
     }
 
-    private fun download(url: String): String {
+    private fun download(url: String): Pair<String, SubscriptionInfo?> {
         Http.client.newCall(Http.request(url)).execute().use { response ->
             if (!response.isSuccessful) error("HTTP ${response.code}")
-            return response.body?.string().orEmpty()
+            // Header names are case-insensitive in okhttp, which matters here:
+            // panels spell this one every way imaginable.
+            val info = SubscriptionInfo.parse(response.header(SubscriptionInfo.HEADER))
+            return response.body?.string().orEmpty() to info
         }
     }
 

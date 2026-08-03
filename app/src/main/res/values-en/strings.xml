@@ -64,6 +64,10 @@
     <string name="last_updated">Last updated: %1$s</string>
     <string name="never_updated">never</string>
     <string name="configs_from_source">%1$d configs</string>
+    <string name="quota_used">%1$s of %2$s</string>
+    <string name="quota_used_only">%1$s used</string>
+    <string name="days_left">%1$d days left</string>
+    <string name="subscription_expired">expired</string>
     <string name="built_in_sources">Built-in sources</string>
     <string name="custom_sources">Your sources</string>
     <string name="restore_default_sources">Restore default sources</string>

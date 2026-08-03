@@ -171,10 +171,21 @@ class AppState(
                 val limiter = if (source.kind == "TELEGRAM") telegram else subs
                 limiter.withPermit {
                     if (source.kind == "TELEGRAM") delay(250)
-                    val outcome = runCatching { SourceLoader.fetch(source.url) }
-                    val configs = outcome.getOrNull()
+                    val outcome = runCatching { SourceLoader.load(source.url) }
+                    val configs = outcome.getOrNull()?.configs
+                    // Recorded even when the body is empty: a lapsed paid
+                    // subscription returns nothing, and the expiry explains it.
+                    val quota = outcome.getOrNull()?.info
+                    if (quota != null) {
+                        updatedSources[index] = updatedSources[index].copy(
+                            upload = quota.upload,
+                            download = quota.download,
+                            total = quota.total,
+                            expiresAt = quota.expiresAt,
+                        )
+                    }
                     if (configs == null) {
-                        updatedSources[index] = source.copy(
+                        updatedSources[index] = updatedSources[index].copy(
                             lastError = outcome.exceptionOrNull()?.message?.take(120),
                             lastUpdated = System.currentTimeMillis(),
                         )
@@ -194,7 +205,7 @@ class AppState(
                             )
                             added++
                         }
-                        updatedSources[index] = source.copy(
+                        updatedSources[index] = updatedSources[index].copy(
                             configCount = configs.size,
                             lastUpdated = System.currentTimeMillis(),
                             lastError = null,

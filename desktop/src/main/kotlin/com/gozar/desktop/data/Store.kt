@@ -4,6 +4,7 @@ import com.gozar.app.data.DefaultSources
 import com.gozar.app.data.Latency
 import com.gozar.app.data.Settings
 import com.gozar.app.data.SourceSpec
+import com.gozar.app.data.SubscriptionInfo
 import com.gozar.app.data.ThemeMode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -38,7 +39,16 @@ data class SourceRecord(
     val lastUpdated: Long = 0,
     val configCount: Int = 0,
     val lastError: String? = null,
-)
+    // What a paid panel reports about the subscription itself. Zero throughout
+    // for a free link, which sends no `subscription-userinfo` header at all.
+    val upload: Long = 0,
+    val download: Long = 0,
+    val total: Long = 0,
+    val expiresAt: Long = 0,
+) {
+    val subscription: SubscriptionInfo?
+        get() = SubscriptionInfo(upload, download, total, expiresAt).takeUnless { it.isEmpty }
+}
 
 @Serializable
 private data class PersistedSettings(

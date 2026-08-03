@@ -20,8 +20,17 @@ data class SourceEntity(
     val lastUpdated: Long = 0,
     val configCount: Int = 0,
     val lastError: String? = null,
+    // Flattened rather than embedded so a schema migration is a plain ALTER.
+    val upload: Long = 0,
+    val download: Long = 0,
+    val total: Long = 0,
+    val expiresAt: Long = 0,
 ) {
     val isTelegram: Boolean get() = kind == SourceSpec.Kind.TELEGRAM.name
+
+    /** Null unless the panel reported a quota for this subscription. */
+    val subscription: SubscriptionInfo?
+        get() = SubscriptionInfo(upload, download, total, expiresAt).takeUnless { it.isEmpty }
 }
 
 @Entity(
