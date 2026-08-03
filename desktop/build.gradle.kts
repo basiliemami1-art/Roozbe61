@@ -2,6 +2,10 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    // Required since Kotlin 2.0: the Compose compiler moved out of the
+    // Multiplatform plugin into its own, and the desktop plugin refuses to
+    // configure without it.
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose.desktop)
     alias(libs.plugins.kotlin.serialization)
 }
