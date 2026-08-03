@@ -249,33 +249,12 @@ jobs:
           echo "::error title=Windows build failed::${SNIPPET}"
           exit 1
 
-      # The app is useless without the core, and a packaging layout that quietly
-      # drops it looks exactly like every server in the list being dead. Cheaper
-      # to fail here than to ship it.
-      - name: Verify the core is in the package
+      - name: Where the build put the core
         shell: bash
         run: |
-          # Searched across the whole build tree, not one guessed directory:
-          # the packaging layout is exactly what is in question here.
-          FOUND="$(find desktop/build -name 'sing-box.exe' 2>/dev/null || true)"
-          if [ -n "$FOUND" ]; then
-            echo "core is packaged:"
-            echo "$FOUND"
-            exit 0
-          fi
-          # The listing goes into the annotation, which is the only part of a
-          # run readable without a token.
-          LISTING="$( {
-            echo "sing-box.exe is not anywhere under desktop/build."
-            echo "source file:"
-            ls -l desktop/resources/windows/ 2>&1 | head -5
-            echo "app image tree:"
-            find desktop/build/compose -maxdepth 5 -type d 2>/dev/null | head -30
-            echo "files near the app image:"
-            find desktop/build/compose -maxdepth 6 -type f 2>/dev/null | head -30
-          } | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}' )"
-          echo "::error title=Core missing from package::${LISTING}"
-          exit 1
+          # Informational: the staging layout is not obvious, and knowing it
+          # makes the authoritative check below easy to interpret.
+          find desktop/build -name 'sing-box.exe' -printf '%p  %s bytes\n' 2>/dev/null || true
 
       - name: Collect the installer
         shell: bash
@@ -283,6 +262,29 @@ jobs:
           mkdir -p dist
           find desktop/build/compose/binaries -name '*.msi' -exec cp {} dist/ \;
           ls -lh dist/
+
+      # The only check that means anything: what is actually inside the file the
+      # user downloads. Without the core the app cannot connect to a single
+      # server, and nothing in it points at why — so this must never ship broken.
+      - name: Verify the core is inside the installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Get-ChildItem dist -Filter *.msi | Select-Object -First 1).FullName
+          $out = Join-Path $env:RUNNER_TEMP 'msi-payload'
+          # An administrative install unpacks the payload without installing it.
+          Start-Process msiexec -ArgumentList "/a `"$msi`" /qn TARGETDIR=`"$out`"" -Wait -NoNewWindow
+          $found = Get-ChildItem $out -Recurse -Filter sing-box.exe -ErrorAction SilentlyContinue
+          if (-not $found) {
+            $tree = (Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+              Select-Object -First 40 -ExpandProperty FullName) -join '%0A'
+            Write-Host "::error title=Core missing from installer::sing-box.exe is not in the MSI payload. Directories:%0A$tree"
+            exit 1
+          }
+          $found | ForEach-Object {
+            $mb = [math]::Round($_.Length / 1MB, 1)
+            Write-Host "core in installer: $($_.FullName) ($mb MB)"
+          }
 
       - name: Upload the installer
         uses: actions/upload-artifact@v4
