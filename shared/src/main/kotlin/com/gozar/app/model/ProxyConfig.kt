@@ -82,6 +82,12 @@ data class ProxyConfig(
     val reserved: List<Int> = emptyList(),
     val mtu: Int? = null,
 
+    /**
+     * A Cloudflare WARP link, which carries an endpoint but no credentials —
+     * those are issued per account by [com.gozar.app.net.Warp] at connect time.
+     */
+    val warp: Boolean = false,
+
     val raw: String = "",
 ) {
     val isTls: Boolean get() = security == "tls" || security == "reality"

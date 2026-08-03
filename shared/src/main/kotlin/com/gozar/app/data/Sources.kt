@@ -70,6 +70,11 @@ object DefaultSources {
         sub("ndsphonemy — speed", "https://raw.githubusercontent.com/ndsphonemy/proxy-sub/main/speed.txt"), // 90% new
         sub("4n0nymou3 fetcher", "https://raw.githubusercontent.com/4n0nymou3/multi-proxy-config-fetcher/main/configs/proxy_configs.txt"),
         sub("ZywChannel", "https://raw.githubusercontent.com/ZywChannel/free/main/sub"), // small, 50% new
+        // Cloudflare WARP endpoints chosen to still answer from Iran. These are
+        // `warp://` links carrying no keys — a free account is registered per
+        // install at connect time, since a published key would be one account
+        // shared by everyone using this app.
+        sub("WARP (IRCF)", "https://raw.githubusercontent.com/ircfspace/warpsub/main/export/warp"),
     )
 
     val telegram: List<SourceSpec> = listOf(

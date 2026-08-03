@@ -38,6 +38,14 @@ compose.desktop {
             // ends up beside the app so it can be launched as a child process.
             appResourcesRootDir.set(layout.projectDirectory.dir("resources"))
 
+            // jlink otherwise trims the runtime to what static analysis can see,
+            // and everything this app needs is reached reflectively: without
+            // jdk.crypto.ec every TLS handshake fails, so it would fetch exactly
+            // zero configs and look like the sources were all dead. The extra
+            // tens of megabytes are worth more than a failure mode that only
+            // shows up on the user's machine.
+            includeAllModules = true
+
             windows {
                 menu = true
                 shortcut = true

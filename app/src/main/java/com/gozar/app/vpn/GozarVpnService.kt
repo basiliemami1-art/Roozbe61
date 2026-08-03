@@ -17,6 +17,7 @@ import com.gozar.app.data.ServerEntity
 import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
 import com.gozar.app.net.LatencyTester
+import com.gozar.app.net.Warp
 import com.gozar.app.parser.ConfigParser
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
@@ -169,9 +170,19 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         var lastError: String? = null
         for ((index, server) in candidates.withIndex()) {
-            val proxy = ConfigParser.parse(server.raw)
-            if (proxy == null) {
+            val parsed = ConfigParser.parse(server.raw)
+            if (parsed == null) {
                 lastError = "unparseable config"
+                continue
+            }
+            // A WARP link carries no credentials; one free account is registered
+            // on demand and reused. Failing here must not stop the sweep — every
+            // other candidate is still worth trying.
+            val proxy = try {
+                Warp.fill(parsed)
+            } catch (error: Throwable) {
+                Diagnostics.log("WARP unavailable: ${error.message}")
+                lastError = "WARP unavailable: ${error.message}"
                 continue
             }
 

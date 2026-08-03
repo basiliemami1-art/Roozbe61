@@ -7,6 +7,7 @@ import com.gozar.app.model.Protocol
 import com.gozar.app.net.Prober
 import com.gozar.app.net.SourceLoader
 import com.gozar.app.net.TunnelProbe
+import com.gozar.app.net.Warp
 import com.gozar.app.parser.ConfigParser
 import com.gozar.desktop.core.SingBoxProcess
 import com.gozar.desktop.core.SystemProxy
@@ -377,7 +378,16 @@ class AppState(
 
         var lastError: String? = null
         for ((index, server) in candidates.withIndex()) {
-            val proxy = ConfigParser.parse(server.raw) ?: continue
+            val parsed = ConfigParser.parse(server.raw) ?: continue
+            // A WARP link carries no credentials; one free account is registered
+            // on demand and reused. A failure here must not stop the sweep.
+            val proxy = try {
+                Warp.fill(parsed)
+            } catch (error: Throwable) {
+                lastError = "WARP unavailable: ${error.message}"
+                log(lastError!!)
+                continue
+            }
             _activeServerId.value = server.id
             _progress.value = "Trying ${index + 1}/${candidates.size} — ${server.name}"
             log(

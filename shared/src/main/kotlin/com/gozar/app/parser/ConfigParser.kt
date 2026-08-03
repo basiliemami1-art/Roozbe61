@@ -2,6 +2,7 @@ package com.gozar.app.parser
 
 import com.gozar.app.model.Protocol
 import com.gozar.app.model.ProxyConfig
+import com.gozar.app.net.Warp
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -20,6 +21,9 @@ object ConfigParser {
     )
 
     private val HTML_TAG = Regex("""<[^>]{1,400}>""")
+
+    /** WireGuard's registered port, which is what every WARP endpoint listens on. */
+    private const val WARP_PORT = 2408
 
     /** Pulls every config-looking URI out of arbitrary text or HTML. */
     fun extractAll(input: String): List<String> {
@@ -48,7 +52,8 @@ object ConfigParser {
         val raw = rawInput.trim()
         val schemeEnd = raw.indexOf("://")
         if (schemeEnd <= 0) return null
-        val protocol = Protocol.fromScheme(raw.substring(0, schemeEnd)) ?: return null
+        val scheme = raw.substring(0, schemeEnd).lowercase()
+        val protocol = Protocol.fromScheme(scheme) ?: return null
         return try {
             when (protocol) {
                 Protocol.VMESS -> parseVmess(raw)
@@ -57,7 +62,11 @@ object ConfigParser {
                 Protocol.SHADOWSOCKS -> parseShadowsocks(raw)
                 Protocol.HYSTERIA2 -> parseHysteria2(raw)
                 Protocol.TUIC -> parseTuic(raw)
-                Protocol.WIREGUARD -> parseWireGuard(raw)
+                // Both schemes are WireGuard on the wire, but a warp:// link
+                // carries no keys, so it cannot go through the same parser.
+                Protocol.WIREGUARD ->
+                    if (scheme == "warp") parseWarp(raw) else parseWireGuard(raw)
+
                 Protocol.SOCKS, Protocol.HTTP -> parseSocksOrHttp(raw, protocol)
             }?.takeIf { it.server.isNotBlank() && it.port in 1..65535 }
         } catch (_: Throwable) {
@@ -356,6 +365,36 @@ object ConfigParser {
             preSharedKey = uri.first("presharedkey", "psk"),
             localAddresses = addresses,
             reserved = reserved,
+            mtu = uri["mtu"]?.toIntOrNull(),
+            raw = raw,
+        )
+    }
+
+    /**
+     * `warp://` names an endpoint and nothing else — Cloudflare issues the keys
+     * per account, so [com.gozar.app.net.Warp] fills them in at connect time.
+     *
+     * The userinfo on these links (`warp://p1@188.114.97.170:894`) is the
+     * publisher's profile label, not a secret. Letting [parseWireGuard] read it
+     * as a private key is what these links used to do here, and it produced a
+     * config that could never connect.
+     */
+    private fun parseWarp(raw: String): ProxyConfig? {
+        val uri = LooseUri.parse(raw) ?: return null
+        // `warp://auto` means "let the client choose". It is resolved to a real
+        // anycast endpoint right here rather than left as a placeholder: the
+        // latency sweep would fail to resolve the word "auto" and bury the entry
+        // at the bottom of the list before it was ever tried.
+        // Publishers write `auto`, `auto4` and `auto6` for the address family
+        // they would prefer; all three mean "no endpoint given".
+        val auto = uri.host.lowercase() in Warp.AUTO_HOSTS
+        return ProxyConfig(
+            protocol = Protocol.WIREGUARD,
+            name = uri.fragment?.takeIf { it.isNotBlank() } ?: "WARP",
+            server = if (auto) Warp.DEFAULT_ENDPOINT else uri.host,
+            // splitHostPort defaults a portless host to 443; WireGuard's is 2408.
+            port = if (!auto && uri.port != 443) uri.port else WARP_PORT,
+            warp = true,
             mtu = uri["mtu"]?.toIntOrNull(),
             raw = raw,
         )
