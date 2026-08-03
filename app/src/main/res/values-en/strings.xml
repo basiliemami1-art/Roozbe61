@@ -37,6 +37,9 @@
     <string name="filter_all">All</string>
     <string name="filter_working">Working</string>
     <string name="filter_favorite">Starred</string>
+    <string name="filter_domestic">Domestic</string>
+    <string name="filter_domestic_count">Domestic (%1$d)</string>
+    <string name="badge_domestic">domestic entry</string>
     <string name="server_count">%1$d servers</string>
     <string name="latency_ms">%1$d ms</string>
     <string name="latency_timeout">No reply</string>

@@ -9,7 +9,12 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /** One server's measured latency, used for batched writes. */
-data class LatencyResult(val id: Long, val latency: Int, val weight: Int)
+data class LatencyResult(
+    val id: Long,
+    val latency: Int,
+    val weight: Int,
+    val domesticEntry: Boolean,
+)
 
 @Dao
 interface SourceDao {
@@ -54,6 +59,7 @@ interface ServerDao {
         WHERE (:search = '' OR name LIKE '%' || :search || '%' OR address LIKE '%' || :search || '%')
           AND (:onlyWorking = 0 OR latency > 0)
           AND (:onlyFavorite = 0 OR favorite = 1)
+          AND (:onlyDomestic = 0 OR domesticEntry = 1)
           AND (:protocol = '' OR protocol = :protocol)
         ORDER BY favorite DESC, sortWeight ASC, id ASC
         LIMIT :limit
@@ -63,6 +69,7 @@ interface ServerDao {
         search: String,
         onlyWorking: Int,
         onlyFavorite: Int,
+        onlyDomestic: Int,
         protocol: String,
         limit: Int,
     ): Flow<List<ServerEntity>>
@@ -95,6 +102,18 @@ interface ServerDao {
     @Query("SELECT * FROM servers ORDER BY sortWeight ASC, id ASC LIMIT :limit")
     suspend fun best(limit: Int): List<ServerEntity>
 
+    /**
+     * Best servers whose entry point is inside Iran — the fallback tier when
+     * international routing is cut.
+     */
+    @Query(
+        "SELECT * FROM servers WHERE domesticEntry = 1 ORDER BY sortWeight ASC, id ASC LIMIT :limit",
+    )
+    suspend fun bestDomestic(limit: Int): List<ServerEntity>
+
+    @Query("SELECT COUNT(*) FROM servers WHERE domesticEntry = 1")
+    fun observeDomesticCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(servers: List<ServerEntity>): List<Long>
 
@@ -112,9 +131,31 @@ interface ServerDao {
     suspend fun updateLatencies(results: List<LatencyResult>) {
         val now = System.currentTimeMillis()
         for (result in results) {
-            updateLatency(result.id, result.latency, result.weight, now)
+            updateProbeResult(
+                result.id,
+                result.latency,
+                result.weight,
+                now,
+                result.domesticEntry,
+            )
         }
     }
+
+    @Query(
+        """
+        UPDATE servers
+        SET latency = :latency, sortWeight = :weight, lastTested = :time,
+            domesticEntry = :domestic
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateProbeResult(
+        id: Long,
+        latency: Int,
+        weight: Int,
+        time: Long,
+        domestic: Boolean,
+    )
 
     @Query("UPDATE servers SET favorite = NOT favorite WHERE id = :id")
     suspend fun toggleFavorite(id: Long)

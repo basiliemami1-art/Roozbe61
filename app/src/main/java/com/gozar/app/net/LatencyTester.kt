@@ -3,6 +3,7 @@ package com.gozar.app.net
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.Latency
 import com.gozar.app.data.LatencyResult
+import com.gozar.app.core.IranRanges
 import com.gozar.app.data.ServerEntity
 import com.gozar.app.model.Protocol
 import com.gozar.app.vpn.Diagnostics
@@ -103,15 +104,18 @@ class LatencyTester(
                             // A single bad server must never abort the sweep;
                             // an escaping exception used to cancel the scope and
                             // leave the progress bar stuck forever.
-                            val latency = runCatching { probe(server) }
-                                .getOrDefault(Latency.FAILED)
-                            if (latency > 0) alive.incrementAndGet()
+                            val outcome = runCatching { probe(server) }
+                                .getOrDefault(
+                                    Outcome(Latency.FAILED, server.domesticEntry),
+                                )
+                            if (outcome.latency > 0) alive.incrementAndGet()
                             pendingLock.withLock {
                                 pending.add(
                                     LatencyResult(
                                         server.id,
-                                        latency,
-                                        ServerEntity.weightFor(latency),
+                                        outcome.latency,
+                                        ServerEntity.weightFor(outcome.latency),
+                                        outcome.domesticEntry,
                                     ),
                                 )
                             }
@@ -142,10 +146,17 @@ class LatencyTester(
         runCatching { resolverPool.shutdownNow() }
     }
 
-    /** @return latency in milliseconds, or [Latency.FAILED]. */
-    fun probe(server: ServerEntity): Int {
-        val address = resolve(server.address) ?: return Latency.FAILED
-        return when (server.protocolEnum) {
+    /** A probe's two useful facts: how fast, and whether the entry is domestic. */
+    data class Outcome(val latency: Int, val domesticEntry: Boolean)
+
+    fun probe(server: ServerEntity): Outcome {
+        val address = resolve(server.address)
+            ?: return Outcome(Latency.FAILED, server.domesticEntry)
+        // Classified from the address the host actually resolves to: a .ir
+        // domain is usually fronted by a foreign CDN, and plenty of domestic
+        // nodes sit behind neutral-looking names.
+        val domestic = IranRanges.contains(address)
+        val latency = when (server.protocolEnum) {
             // QUIC/UDP-based protocols have no handshake we can time without the
             // core, so they are ranked on resolution plus a fixed penalty. They
             // stay comparable to each other and never outrank a measured result.
@@ -154,6 +165,7 @@ class LatencyTester(
 
             else -> tcpConnect(address, server.port)
         }
+        return Outcome(latency, domestic)
     }
 
     private fun tcpConnect(address: InetAddress, port: Int): Int {

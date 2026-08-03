@@ -3,6 +3,7 @@ package com.gozar.app
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
+import com.gozar.app.core.IranRanges
 import com.gozar.app.data.GozarDatabase
 import com.gozar.app.data.SettingsRepository
 import com.gozar.app.net.SourceFetcher
@@ -20,6 +21,10 @@ class App : Application() {
         instance = this
 
         scope.launch {
+            // Parsed once at startup so the latency sweep can classify entry
+            // points without touching the disk per server.
+            IranRanges.load(this@App)
+
             val database = GozarDatabase.get(this@App)
             SourceFetcher.seedDefaults(database)
 

@@ -49,6 +49,12 @@ object DefaultSources {
         sub("freefq", "https://raw.githubusercontent.com/freefq/free/master/v2"),
         sub("ripaojiedian", "https://raw.githubusercontent.com/ripaojiedian/freenode/main/sub"),
         sub("Pawdroid", "https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub"),
+        // Added 2026-08-03. Large aggregators that also carry a useful number of
+        // Iranian-entry nodes, which is what survives an international cut.
+        sub("liMilCo", "https://raw.githubusercontent.com/liMilCo/v2r/main/all_configs.txt"),
+        sub("Delta-Kronecker", "https://raw.githubusercontent.com/Delta-Kronecker/V2ray-Config/main/config/all_configs.txt"),
+        sub("Freedom-V2Ray", "https://raw.githubusercontent.com/MahanKenway/Freedom-V2Ray/main/configs/mix.txt"),
+        sub("DukeMehdi — lite", "https://raw.githubusercontent.com/DukeMehdi/FreeList-V2ray-Configs/main/Configs/Lite-DukeMehdi-Configs.txt"),
     )
 
     val telegram: List<SourceSpec> = listOf(

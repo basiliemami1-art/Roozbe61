@@ -34,7 +34,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class ServerFilter { ALL, WORKING, FAVORITE }
+enum class ServerFilter { ALL, WORKING, FAVORITE, DOMESTIC }
 
 sealed interface BusyState {
     data class Refreshing(val done: Int, val total: Int, val source: String) : BusyState
@@ -75,15 +75,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var busyJob: Job? = null
 
     val servers: StateFlow<List<ServerEntity>> =
-        combine(_search.debounce(220), _filter) { query, filter -> query to filter }
-            .flatMapLatest { (query, filter) ->
-                database.serverDao().observeFiltered(
+        combine(
+            _search.debounce(220),
+            _filter,
+            VpnState.activeServerId,
+        ) { query, filter, activeId -> Triple(query, filter, activeId) }
+            .flatMapLatest { (query, filter, activeId) ->
+                val page = database.serverDao().observeFiltered(
                     search = query.trim(),
                     onlyWorking = if (filter == ServerFilter.WORKING) 1 else 0,
                     onlyFavorite = if (filter == ServerFilter.FAVORITE) 1 else 0,
+                    onlyDomestic = if (filter == ServerFilter.DOMESTIC) 1 else 0,
                     protocol = "",
                     limit = 600,
                 )
+                // The connected server is pinned to the top regardless of the
+                // search or filter — hunting for it in a list of hundreds is the
+                // opposite of what someone wants while connected.
+                combine(page, database.serverDao().observeById(activeId)) { list, active ->
+                    if (active == null) list
+                    else listOf(active) + list.filterNot { it.id == active.id }
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -91,6 +103,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val workingCount: StateFlow<Int> = database.serverDao().observeWorkingCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val domesticCount: StateFlow<Int> = database.serverDao().observeDomesticCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val sources: StateFlow<List<SourceEntity>> = database.sourceDao().observeAll()

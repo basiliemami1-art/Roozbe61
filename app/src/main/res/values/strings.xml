@@ -38,6 +38,9 @@
     <string name="filter_all">همه</string>
     <string name="filter_working">سالم</string>
     <string name="filter_favorite">نشان‌شده</string>
+    <string name="filter_domestic">داخلی</string>
+    <string name="filter_domestic_count">داخلی (%1$d)</string>
+    <string name="badge_domestic">ورودی داخلی</string>
     <string name="server_count">%1$d سرور</string>
     <string name="latency_ms">%1$d میلی‌ثانیه</string>
     <string name="latency_timeout">بی‌پاسخ</string>

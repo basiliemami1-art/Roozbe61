@@ -42,6 +42,7 @@ data class SourceEntity(
         Index(value = ["uniqueKey"], unique = true),
         Index(value = ["sortWeight"]),
         Index(value = ["sourceId"]),
+        Index(value = ["domesticEntry"]),
     ],
 )
 data class ServerEntity(
@@ -58,6 +59,16 @@ data class ServerEntity(
     val lastTested: Long = 0,
     val favorite: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
+    /**
+     * The entry point resolves to an address inside Iran.
+     *
+     * Set during the latency sweep, from the address the host actually resolves
+     * to — a `.ir` domain is no guarantee, since most of them are fronted by
+     * foreign CDNs. These are the only servers still reachable when
+     * international routing is cut and the domestic network stays up.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val domesticEntry: Boolean = false,
     /**
      * Denormalised ordering key, maintained alongside [latency]. Keeping it as a
      * plain indexed column lets "fastest first" be an index scan instead of a

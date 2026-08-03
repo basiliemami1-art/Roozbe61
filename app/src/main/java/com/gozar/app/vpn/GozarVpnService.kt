@@ -179,7 +179,8 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
             // Shape of the config only — never the credentials in it.
             Diagnostics.log(
                 "try ${index + 1}/${candidates.size}: ${proxy.protocol.label} " +
-                    "${proxy.server}:${proxy.port} net=${proxy.network} sec=${proxy.security}",
+                    "${proxy.server}:${proxy.port} net=${proxy.network} sec=${proxy.security}" +
+                    if (server.domesticEntry) " [domestic entry]" else "",
             )
             VpnState.setProgress(
                 getString(R.string.trying_server, index + 1, candidates.size, server.name),
@@ -257,9 +258,14 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         }
         val preferred = if (preferredId > 0) dao.byId(preferredId) else null
         val alternatives = dao.best(MAX_CONNECT_ATTEMPTS)
-        return (listOfNotNull(preferred) + alternatives)
+        // A last tier of servers whose entry point is inside Iran. When
+        // international routing is cut these are the only ones still reachable,
+        // and they cost nothing to include when it is not — they simply lose on
+        // latency and never get tried.
+        val domestic = dao.bestDomestic(DOMESTIC_FALLBACK_ATTEMPTS)
+        return (listOfNotNull(preferred) + alternatives + domestic)
             .distinctBy { it.id }
-            .take(MAX_CONNECT_ATTEMPTS)
+            .take(MAX_CONNECT_ATTEMPTS + DOMESTIC_FALLBACK_ATTEMPTS)
     }
 
     /** One-time core setup; the command server outlives individual configs. */
@@ -439,6 +445,9 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
 
         /** How many servers to try before giving up on a connect request. */
         private const val MAX_CONNECT_ATTEMPTS = 6
+
+        /** Extra attempts reserved for domestic-entry servers. */
+        private const val DOMESTIC_FALLBACK_ATTEMPTS = 3
 
         @Volatile
         private var libboxReady = false

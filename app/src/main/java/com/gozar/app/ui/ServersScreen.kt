@@ -2,12 +2,13 @@ package com.gozar.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
@@ -48,7 +50,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,6 +64,7 @@ import com.gozar.app.ui.components.ProtocolChip
 import com.gozar.app.ui.components.latencyColor
 import com.gozar.app.ui.theme.Amber
 import com.gozar.app.ui.theme.Mint
+import com.gozar.app.ui.theme.MintDeep
 import com.gozar.app.ui.theme.Violet
 import com.gozar.app.vpn.ConnectionStatus
 
@@ -80,6 +82,7 @@ fun ServersScreen(
     val workingCount by viewModel.workingCount.collectAsState()
     val status by viewModel.status.collectAsState()
     val activeId by viewModel.activeServerId.collectAsState()
+    val domesticCount by viewModel.domesticCount.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -94,9 +97,11 @@ fun ServersScreen(
             shape = RoundedCornerShape(18.dp),
         )
 
+        // Scrollable: four chips do not fit on a narrow screen in either language.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -115,6 +120,20 @@ fun ServersScreen(
                 selected = filter == ServerFilter.FAVORITE,
                 onClick = { viewModel.setFilter(ServerFilter.FAVORITE) },
                 label = { Text(stringResource(R.string.filter_favorite)) },
+            )
+            FilterChip(
+                selected = filter == ServerFilter.DOMESTIC,
+                onClick = { viewModel.setFilter(ServerFilter.DOMESTIC) },
+                label = {
+                    Text(
+                        if (domesticCount > 0) {
+                            stringResource(R.string.filter_domestic_count, domesticCount)
+                        } else {
+                            stringResource(R.string.filter_domestic)
+                        },
+                    )
+                },
+                leadingIcon = { Icon(Icons.Rounded.Home, null, Modifier.size(16.dp)) },
             )
         }
 
@@ -252,14 +271,17 @@ private fun ServerRow(
         else -> latencyColor(server.latency)
     }
     val borderColor by animateColorAsState(
-        targetValue = if (active) Mint.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
+        targetValue = if (active) Mint else MaterialTheme.colorScheme.outlineVariant,
         animationSpec = tween(280),
         label = "border",
     )
-    val glow by animateFloatAsState(
-        targetValue = if (active) 0.12f else 0f,
+    // The connected row is the one thing on this screen worth finding at a
+    // glance, so it gets a filled green card rather than a tint you have to
+    // look for.
+    val container by animateColorAsState(
+        targetValue = if (active) Mint.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
         animationSpec = tween(280),
-        label = "glow",
+        label = "container",
     )
 
     Surface(
@@ -268,16 +290,14 @@ private fun ServerRow(
             .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = container,
     ) {
         Box(
-            Modifier
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(accent.copy(alpha = glow), accent.copy(alpha = 0f)),
-                    ),
-                )
-                .border(1.dp, borderColor, RoundedCornerShape(18.dp)),
+            Modifier.border(
+                width = if (active) 1.5.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(18.dp),
+            ),
         ) {
             Row(
                 modifier = Modifier.padding(start = 6.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
@@ -303,6 +323,7 @@ private fun ServerRow(
                         text = Flags.stripFlag(server.name),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (active || selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (active) MintDeep else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -311,6 +332,17 @@ private fun ServerRow(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        if (active) {
+                            Text(
+                                text = stringResource(R.string.state_connected),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MintDeep,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        if (server.domesticEntry) {
+                            ProtocolChip(stringResource(R.string.badge_domestic))
+                        }
                         ProtocolChip(server.protocolEnum?.label ?: server.protocol)
                         Text(
                             text = server.address,
