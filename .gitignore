@@ -18,3 +18,6 @@ app/libs/*.jar
 *.keystore
 !signing/dev-signing.jks
 keystore.properties
+
+# Fetched by CI, never committed.
+desktop/resources/windows/sing-box.exe

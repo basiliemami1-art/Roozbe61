@@ -27,4 +27,4 @@ rootProject.name = "Gozar"
 // so the Android app and the Windows app cannot drift apart.
 include(":shared")
 include(":app")
-// include(":desktop")  // added in the next commit
+include(":desktop")
