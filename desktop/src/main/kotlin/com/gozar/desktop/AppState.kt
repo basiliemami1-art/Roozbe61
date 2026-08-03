@@ -62,7 +62,18 @@ sealed interface Busy {
  * Which server the connect loop is on. Kept structured rather than pre-rendered
  * so the window can phrase it in the user's language.
  */
-data class Attempt(val round: Int, val index: Int, val total: Int, val server: String)
+data class Attempt(
+    val round: Int,
+    val index: Int,
+    val total: Int,
+    val server: String,
+    /**
+     * Why the previous candidate failed. Shown because the loop no longer gives
+     * up: without it, an attempt that can never succeed looks identical to one
+     * that is about to.
+     */
+    val lastError: String? = null,
+)
 
 /** Per-second rates and the running totals for this session. */
 data class Throughput(
@@ -194,6 +205,18 @@ class AppState(
     // --------------------------------------------------------------- Sources
 
     private var lastPublishAt = 0L
+
+    /**
+     * Guards the working map a sweep builds up.
+     *
+     * Both callbacks that fill one are invoked concurrently — `Prober.sweep`
+     * calls `onBatch` outside its own lock from up to 64 coroutines at once,
+     * and the measurement stage runs eight in parallel. Writing a plain
+     * LinkedHashMap from that many threads while another reads it to sort
+     * corrupts its internal chain, and iterating a corrupted chain never
+     * returns: the app sat on "measuring" forever.
+     */
+    private val resultsGuard = Mutex()
 
     /**
      * Pushes the working set to the screen while a sweep is still running.
@@ -366,17 +389,19 @@ class AppState(
                 prober.sweep(
                     targets = targets,
                     onBatch = { batch ->
-                        for (outcome in batch) {
-                            val server = byId[outcome.id] ?: continue
-                            if (outcome.latencyMs > 0) answered++
-                            byId[outcome.id] = server.copy(
-                                latency = outcome.latencyMs,
-                                domesticEntry = outcome.domesticEntry,
-                            )
+                        resultsGuard.withLock {
+                            for (outcome in batch) {
+                                val server = byId[outcome.id] ?: continue
+                                if (outcome.latencyMs > 0) answered++
+                                byId[outcome.id] = server.copy(
+                                    latency = outcome.latencyMs,
+                                    domesticEntry = outcome.domesticEntry,
+                                )
+                            }
+                            // Applied as each batch lands, so the ranking settles
+                            // in front of the user instead of after the sweep.
+                            publishServers(byId.values)
                         }
-                        // Applied as each batch lands, so the ranking settles in
-                        // front of the user instead of after the whole sweep.
-                        publishServers(byId.values)
                     },
                     onProgress = { _busy.value = Busy.Testing(it.done, it.total, it.alive) },
                 )
@@ -386,7 +411,8 @@ class AppState(
                 // of the best few over the user's own connection.
                 measureBest(byId, settings)
             } finally {
-                // A cancelled sweep still keeps everything it measured.
+                // A cancelled sweep still keeps everything it measured. Safe to
+                // read unlocked here: every worker has stopped by now.
                 publishServers(byId.values, force = true)
                 store.saveServers(_servers.value)
                 prober.shutdown()
@@ -425,8 +451,12 @@ class AppState(
             candidates = candidates,
             settings = settings,
             onResult = { outcome ->
-                byId[outcome.id]?.let { byId[outcome.id] = it.copy(realDelay = outcome.delayMs) }
-                publishServers(byId.values)
+                resultsGuard.withLock {
+                    byId[outcome.id]?.let {
+                        byId[outcome.id] = it.copy(realDelay = outcome.delayMs)
+                    }
+                    publishServers(byId.values)
+                }
             },
             onProgress = { _busy.value = Busy.Measuring(it.done, it.total, it.alive) },
         )
@@ -533,7 +563,7 @@ class AppState(
             for ((index, server) in fresh.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 tried += server.id
-                val failure = attempt(server, settings, round, index + 1, fresh.size)
+                val failure = attempt(server, settings, round, index + 1, fresh.size, lastError)
                 if (failure == null) return server
                 lastError = failure
             }
@@ -571,6 +601,7 @@ class AppState(
         round: Int,
         index: Int,
         total: Int,
+        lastError: String?,
     ): String? {
         val parsed = ConfigParser.parse(server.raw) ?: return "unparseable config"
         // A WARP link carries no credentials; one free account is registered on
@@ -582,7 +613,7 @@ class AppState(
             return "WARP unavailable: ${error.message}"
         }
         _activeServerId.value = server.id
-        _progress.value = Attempt(round, index, total, server.name)
+        _progress.value = Attempt(round, index, total, server.name, lastError)
         log(
             "round $round try $index/$total: ${proxy.protocol.label} " +
                 "${proxy.server}:${proxy.port}" +

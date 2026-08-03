@@ -40,8 +40,11 @@ class SingBoxProcess(
         stop()
         require(binary.exists()) { "sing-box binary is missing at ${binary.absolutePath}" }
 
-        val port = findFreePort()
-        val apiPort = findFreePort()
+        // Both at once. Two separate calls each open a socket, read the port and
+        // close it, so the OS is free to hand back the same number twice — and
+        // then the core cannot bind its second listener and exits, which looks
+        // exactly like every server being dead.
+        val (port, apiPort) = findFreePorts(2)
         val config = SingBoxConfig.build(
             proxy = proxy,
             settings = settings,
@@ -65,14 +68,32 @@ class SingBoxProcess(
             .start()
         process = started
 
-        // The core's own log is the only place its errors appear; losing it is
-        // what makes "connected but nothing loads" impossible to diagnose.
+        // Kept as well as logged: when the core refuses a config it says why and
+        // exits within milliseconds, and that sentence is the entire diagnosis.
+        val firstLines = ArrayDeque<String>()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 started.inputStream.bufferedReader().forEachLine { line ->
-                    if (line.isNotBlank()) onLog("core: ${line.take(300)}")
+                    if (line.isBlank()) return@forEachLine
+                    synchronized(firstLines) {
+                        if (firstLines.size < KEPT_LINES) firstLines.addLast(line.take(300))
+                    }
+                    onLog("core: ${line.take(300)}")
                 }
             }
+        }
+
+        // A core that died on startup would otherwise be indistinguishable from
+        // a dead server: every candidate would fail its inbound check after six
+        // seconds and the app would retry for ever without ever saying why.
+        if (started.waitFor(STARTUP_GRACE_MS, TimeUnit.MILLISECONDS)) {
+            val reason = synchronized(firstLines) { firstLines.joinToString(" | ") }
+            process = null
+            clashApiPort = 0
+            error(
+                "sing-box exited immediately (code ${started.exitValue()})" +
+                    if (reason.isNotBlank()) ": $reason" else "",
+            )
         }
         return port
     }
@@ -88,7 +109,19 @@ class SingBoxProcess(
     }
 
     companion object {
-        fun findFreePort(): Int = ServerSocket(0).use { it.localPort }
+        /** Long enough for a config rejection, short enough not to be felt. */
+        private const val STARTUP_GRACE_MS = 700L
+        private const val KEPT_LINES = 6
+
+        fun findFreePort(): Int = findFreePorts(1).first()
+
+        /** Distinct ports: every socket is held open until all are chosen. */
+        fun findFreePorts(count: Int): List<Int> {
+            val sockets = List(count) { ServerSocket(0) }
+            val ports = sockets.map { it.localPort }
+            sockets.forEach { runCatching { it.close() } }
+            return ports
+        }
 
         /**
          * Looks for the bundled binary next to the installed app, then falls

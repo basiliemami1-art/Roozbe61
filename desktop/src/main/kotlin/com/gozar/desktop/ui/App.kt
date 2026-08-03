@@ -368,6 +368,19 @@ private fun ConnectScreen(state: AppState) {
             textAlign = TextAlign.Center,
             maxLines = 2,
         )
+        // The loop no longer gives up, so the reason the last one failed is the
+        // only thing distinguishing "still working" from "never going to work".
+        progress?.lastError?.let { reason ->
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = text.lastFailure.fill(reason),
+                style = MaterialTheme.typography.bodySmall,
+                color = Amber,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         AnimatedVisibility(connecting, enter = fadeIn(), exit = fadeOut()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(10.dp))

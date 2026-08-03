@@ -54,13 +54,18 @@ class DelayTester(
         val configFile = File(dir, "tester.json")
 
         return try {
-            withContext(Dispatchers.IO) {
+            val up = withContext(Dispatchers.IO) {
                 configFile.writeText(config)
                 start(dir, configFile)
             }
+            if (!up) return emptyList()
             RealDelay.measureAll(
                 apiPort = apiPort,
                 candidates = candidates,
+                // Higher than the default: these are 204 responses, and the wait
+                // is almost entirely the timeout on servers that never answer.
+                // At eight, fifty candidates took over half a minute.
+                concurrency = 16,
                 onResult = onResult,
                 onProgress = onProgress,
             )
@@ -69,7 +74,8 @@ class DelayTester(
         }
     }
 
-    private fun start(dir: File, configFile: File) {
+    /** @return false when the core refused to start; the reason is logged. */
+    private fun start(dir: File, configFile: File): Boolean {
         stop()
         val started = ProcessBuilder(
             binary.absolutePath,
@@ -81,19 +87,35 @@ class DelayTester(
             .redirectErrorStream(true)
             .start()
         process = started
-        // Drained rather than logged line by line: fifty outbounds produce a
-        // lot of noise, and only a refusal to start is worth surfacing.
+
+        // Drained rather than logged line by line: fifty outbounds produce a lot
+        // of noise, and only a refusal to start is worth surfacing.
+        val firstLines = ArrayDeque<String>()
         Thread({
             runCatching {
                 started.inputStream.bufferedReader().forEachLine { line ->
-                    if (line.contains("FATAL", ignoreCase = true) ||
-                        line.contains("error", ignoreCase = true)
-                    ) {
-                        onLog("tester: ${line.take(200)}")
+                    if (line.isBlank()) return@forEachLine
+                    synchronized(firstLines) {
+                        if (firstLines.size < KEPT_LINES) firstLines.addLast(line.take(200))
                     }
                 }
             }
         }, "gozar-tester-log").apply { isDaemon = true }.start()
+
+        // Without this the measurement would just time out waiting for an API
+        // that was never going to answer, and report every server as dead.
+        if (started.waitFor(STARTUP_GRACE_MS, TimeUnit.MILLISECONDS)) {
+            val reason = synchronized(firstLines) { firstLines.joinToString(" | ") }
+            onLog("tester core exited (code ${started.exitValue()}): $reason")
+            process = null
+            return false
+        }
+        return true
+    }
+
+    private companion object {
+        const val STARTUP_GRACE_MS = 700L
+        const val KEPT_LINES = 6
     }
 
     fun stop() {
