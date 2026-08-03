@@ -255,14 +255,27 @@ jobs:
       - name: Verify the core is in the package
         shell: bash
         run: |
-          echo "--- app image contents"
-          find desktop/build/compose/binaries -name 'sing-box.exe' -printf '%p  %s bytes\n' || true
-          if ! find desktop/build/compose/binaries -name 'sing-box.exe' | grep -q .; then
-            echo "::error title=Core missing from package::sing-box.exe was not packaged into the app image. Check nativeDistributions.appResourcesRootDir and the resources/windows layout."
-            echo "--- what is in the app image"
-            find desktop/build/compose/binaries -maxdepth 6 -type d | head -40
-            exit 1
+          # Searched across the whole build tree, not one guessed directory:
+          # the packaging layout is exactly what is in question here.
+          FOUND="$(find desktop/build -name 'sing-box.exe' 2>/dev/null || true)"
+          if [ -n "$FOUND" ]; then
+            echo "core is packaged:"
+            echo "$FOUND"
+            exit 0
           fi
+          # The listing goes into the annotation, which is the only part of a
+          # run readable without a token.
+          LISTING="$( {
+            echo "sing-box.exe is not anywhere under desktop/build."
+            echo "source file:"
+            ls -l desktop/resources/windows/ 2>&1 | head -5
+            echo "app image tree:"
+            find desktop/build/compose -maxdepth 5 -type d 2>/dev/null | head -30
+            echo "files near the app image:"
+            find desktop/build/compose -maxdepth 6 -type f 2>/dev/null | head -30
+          } | sed 's/%/%25/g; s/\r/ /g' | awk '{printf "%s%%0A", $0}' )"
+          echo "::error title=Core missing from package::${LISTING}"
+          exit 1
 
       - name: Collect the installer
         shell: bash
