@@ -147,10 +147,18 @@ class AppState(
     // and a property initialised further down is still null at that point.
     private val timestamp = SimpleDateFormat("HH:mm:ss", Locale.US)
 
+    /**
+     * Where the core was found, or every path searched.
+     *
+     * Held separately as well as logged: without the core nothing can ever
+     * connect, that failure looks exactly like every server being dead, and a
+     * retry loop would push the line out of the log's ring buffer long before
+     * anyone thought to look at it.
+     */
+    val coreLocation: String = SingBoxProcess.describeLocation()
+
     init {
-        // First line in the log on purpose: without the core nothing can ever
-        // connect, and that failure otherwise looks like every server is dead.
-        log(SingBoxProcess.describeLocation())
+        log(coreLocation)
         IranRanges.load()
         if (_servers.value.isEmpty() && _settings.value.autoUpdateSources) {
             refreshSources()

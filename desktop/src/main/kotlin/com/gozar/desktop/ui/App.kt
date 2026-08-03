@@ -74,7 +74,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -903,12 +905,27 @@ private fun SettingsScreen(state: AppState) {
         }
 
         Spacer(Modifier.height(20.dp))
+        val clipboard = LocalClipboardManager.current
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel(text.sectionDiagnostics, Modifier.weight(1f))
+            // Reading this off the screen and retyping it is the difference
+            // between a reproducible report and a guess.
+            TextButton(
+                onClick = { clipboard.setText(AnnotatedString(log.joinToString("\n"))) },
+                enabled = log.isNotEmpty(),
+            ) { Text(text.copy) }
             TextButton(onClick = state::clearLog) { Text(text.clear) }
         }
         Spacer(Modifier.height(9.dp))
         Card(Modifier.fillMaxWidth(), padding = 14) {
+            Text(
+                state.coreLocation,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                color = if (state.coreLocation.contains("NOT FOUND")) Rose else MintDeep,
+            )
+            Spacer(Modifier.height(8.dp))
             if (log.isEmpty()) {
                 Text(
                     text.nothingLogged,

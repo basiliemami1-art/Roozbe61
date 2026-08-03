@@ -89,6 +89,7 @@ data class Strings(
     val themeDark: String,
     val sectionDiagnostics: String,
     val clear: String,
+    val copy: String,
     val nothingLogged: String,
 
     // Latency pills and relative times
@@ -172,6 +173,7 @@ data class Strings(
             themeDark = "Dark",
             sectionDiagnostics = "Diagnostics",
             clear = "Clear",
+            copy = "Copy",
             nothingLogged = "Nothing recorded yet — try connecting once",
             untested = "untested",
             noReply = "no reply",
@@ -251,6 +253,7 @@ data class Strings(
             themeDark = "تیره",
             sectionDiagnostics = "گزارش تشخیصی",
             clear = "پاک کردن",
+            copy = "کپی",
             nothingLogged = "هنوز چیزی ثبت نشده — یک بار اتصال را امتحان کنید",
             untested = "تست نشده",
             noReply = "بی‌پاسخ",
