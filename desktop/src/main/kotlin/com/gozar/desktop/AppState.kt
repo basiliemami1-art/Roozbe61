@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -417,11 +418,20 @@ class AppState(
     /** The only thing that ends a connect attempt short of success. */
     fun cancelConnect() {
         if (_status.value != ConnectionStatus.CONNECTING) return
-        connectJob?.cancel()
+        val attempt = connectJob
         connectJob = null
-        log("connect cancelled")
+        _status.value = ConnectionStatus.STOPPING
         _progress.value = null
-        stop()
+        scope.launch {
+            // Waited on rather than cancelled-and-forgotten: the attempt may be
+            // inside core.start, and tearing the core down first would leave the
+            // process it is about to spawn running with nothing tracking it.
+            attempt?.cancelAndJoin()
+            withContext(Dispatchers.IO) { teardown() }
+            _activeServerId.value = 0
+            _status.value = ConnectionStatus.DISCONNECTED
+            log("connect cancelled")
+        }
     }
 
     /**

@@ -40,7 +40,14 @@ fun main() = application {
         AppTray(
             onShowHide = { visible = !currentVisible },
             onToggleConnection = {
-                if (currentStatus == ConnectionStatus.CONNECTED) state.stop() else state.connect()
+                when (currentStatus) {
+                    ConnectionStatus.CONNECTED -> state.stop()
+                    // Without this the menu item did nothing mid-attempt:
+                    // connect() returns early on any non-disconnected state.
+                    ConnectionStatus.CONNECTING -> state.cancelConnect()
+                    ConnectionStatus.STOPPING -> Unit
+                    ConnectionStatus.DISCONNECTED -> state.connect()
+                }
             },
             onQuit = {
                 state.shutdown()

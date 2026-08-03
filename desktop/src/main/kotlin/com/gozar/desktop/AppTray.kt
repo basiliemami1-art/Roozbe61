@@ -65,6 +65,7 @@ class AppTray(
         showHide.label = if (windowVisible) text.trayHide else text.trayShow
         toggle.label = when (status) {
             ConnectionStatus.CONNECTED -> text.trayDisconnect
+            ConnectionStatus.CONNECTING -> text.cancel
             else -> text.trayConnect
         }
         quit.label = text.trayQuit
