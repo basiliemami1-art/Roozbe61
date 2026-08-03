@@ -1,12 +1,14 @@
 package com.gozar.desktop
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -18,6 +20,8 @@ fun main() = application {
     val state = remember { AppState() }
     var visible by remember { mutableStateOf(true) }
     val status by state.status.collectAsState()
+    val settings by state.settings.collectAsState()
+    val text = Strings.forLanguage(settings.language)
 
     // The system proxy is a machine-wide setting. If the process dies without
     // clearing it, every browser on the machine keeps pointing at a port that
@@ -27,34 +31,30 @@ fun main() = application {
         true
     }
 
-    // The tray lives outside the app's CompositionLocals, so it reads the
-    // language straight from settings.
-    val settings by state.settings.collectAsState()
-    val text = Strings.forLanguage(settings.language)
-
-    Tray(
-        icon = TrayIcon,
-        tooltip = "${text.appName} — " + when (status) {
-            ConnectionStatus.CONNECTED -> text.statusConnected
-            ConnectionStatus.CONNECTING -> text.statusConnecting
-            ConnectionStatus.STOPPING -> text.statusStopping
-            ConnectionStatus.DISCONNECTED -> text.statusDisconnected
-        },
-        onAction = { visible = true },
-        menu = {
-            Item(if (visible) text.trayHide else text.trayShow) { visible = !visible }
-            Item(
-                if (status == ConnectionStatus.CONNECTED) text.trayDisconnect else text.trayConnect,
-            ) {
-                if (status == ConnectionStatus.CONNECTED) state.stop() else state.connect()
-            }
-            Separator()
-            Item(text.trayQuit) {
+    // The listeners are read through rememberUpdatedState so the tray, which is
+    // installed once, always calls the current lambdas rather than the ones
+    // captured on the first composition.
+    val currentStatus by rememberUpdatedState(status)
+    val currentVisible by rememberUpdatedState(visible)
+    val tray = remember {
+        AppTray(
+            onShowHide = { visible = !currentVisible },
+            onToggleConnection = {
+                if (currentStatus == ConnectionStatus.CONNECTED) state.stop() else state.connect()
+            },
+            onQuit = {
                 state.shutdown()
                 exitApplication()
-            }
-        },
-    )
+            },
+        )
+    }
+    DisposableEffect(Unit) {
+        tray.install()
+        onDispose { tray.remove() }
+    }
+    LaunchedEffect(text, status, visible) {
+        tray.update(text, status, visible)
+    }
 
     Window(
         // Closing the window leaves the tunnel running and the app in the tray,
@@ -62,9 +62,9 @@ fun main() = application {
         onCloseRequest = { visible = false },
         visible = visible,
         title = text.appName,
-        state = rememberWindowState(width = 1040.dp, height = 720.dp),
+        state = rememberWindowState(width = 1120.dp, height = 760.dp),
     ) {
-        window.minimumSize = Dimension(880, 620)
+        window.minimumSize = Dimension(960, 660)
         GozarApp(state)
     }
 }

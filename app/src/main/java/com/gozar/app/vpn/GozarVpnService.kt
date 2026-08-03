@@ -29,7 +29,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -158,90 +160,118 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         requestedServerId: Long,
         settings: Settings,
     ): ServerEntity {
-        val candidates = candidateServers(requestedServerId, settings)
-        if (candidates.isEmpty()) {
-            throw IllegalStateException(getString(R.string.error_no_server))
-        }
-
         val probePort = findFreePort()
         localProxyPort = probePort
-        Diagnostics.log("connecting — ${candidates.size} candidates, probe port $probePort")
         prepareCore()
 
+        val tried = HashSet<Long>()
+        var round = 1
         var lastError: String? = null
-        for ((index, server) in candidates.withIndex()) {
-            val parsed = ConfigParser.parse(server.raw)
-            if (parsed == null) {
-                lastError = "unparseable config"
-                continue
+
+        // Runs until something works or the user disconnects, which cancels this
+        // coroutine. A fixed budget of attempts was the wrong shape: with tens of
+        // thousands of scraped servers, most of them dead on any given day,
+        // stopping after six left the user pressing a button that had quietly
+        // given up.
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val candidates = candidateServers(requestedServerId, settings, round)
+            if (candidates.isEmpty()) {
+                throw IllegalStateException(getString(R.string.error_no_server))
             }
-            // A WARP link carries no credentials; one free account is registered
-            // on demand and reused. Failing here must not stop the sweep — every
-            // other candidate is still worth trying.
-            val proxy = try {
-                Warp.fill(parsed)
-            } catch (error: Throwable) {
-                Diagnostics.log("WARP unavailable: ${error.message}")
-                lastError = "WARP unavailable: ${error.message}"
-                continue
-            }
-
-            VpnState.setActiveServer(server.id)
-            // Shape of the config only — never the credentials in it.
-            Diagnostics.log(
-                "try ${index + 1}/${candidates.size}: ${proxy.protocol.label} " +
-                    "${proxy.server}:${proxy.port} net=${proxy.network} sec=${proxy.security}" +
-                    if (server.domesticEntry) " [domestic entry]" else "",
-            )
-            VpnState.setProgress(
-                getString(R.string.trying_server, index + 1, candidates.size, server.name),
-            )
-            notifications.update(getString(R.string.state_connecting), server.name)
-
-            try {
-                applyConfig(SingBoxConfig.build(proxy, settings, probePort))
-            } catch (error: Throwable) {
-                Diagnostics.log("core rejected ${server.name}: ${error.message}")
-                lastError = "core error: ${error.message}"
-                markServerFailed(server)
-                continue
-            }
-
-            // Give the inbound a moment to bind before probing through it.
-            delay(700)
-
-            // Separating these two failures matters: if the loopback inbound is
-            // not even listening the fault is ours, not the server's, and every
-            // candidate would fail identically.
-            if (!isLocalInboundUp(probePort)) {
-                Diagnostics.log("local inbound 127.0.0.1:$probePort is not listening")
-                lastError = "core inbound not listening"
-                break
-            }
-
-            val delayMs = LatencyTester.measureTunnelDelay(probePort)
-            if (delayMs > 0) {
-                Diagnostics.log("OK ${server.name} — ${delayMs}ms through the tunnel")
-                database.serverDao().updateLatency(
-                    id = server.id,
-                    latency = delayMs,
-                    weight = Latency.weightFor(delayMs),
-                    time = System.currentTimeMillis(),
+            val fresh = candidates.filterNot { it.id in tried }
+            if (fresh.isEmpty()) {
+                Diagnostics.log(
+                    "round $round exhausted (${lastError ?: "no reason recorded"}); widening",
                 )
-                VpnState.setStats(VpnState.stats.value.copy(delayMs = delayMs))
-                settingsRepository.setSelectedServer(server.id)
-                return server
+                tried.clear()
+                round++
+                // A pause so a transient outage is not hammered, and so a test
+                // sweep running alongside can re-rank the list first.
+                delay(RETRY_PAUSE_MS)
+                continue
             }
+            Diagnostics.log("round $round — ${fresh.size} candidates, probe port $probePort")
 
-            Diagnostics.log("${server.name} came up but carried no traffic")
-            lastError = "no traffic"
-            markServerFailed(server)
+            for ((index, server) in fresh.withIndex()) {
+                currentCoroutineContext().ensureActive()
+                tried += server.id
+                val failure = attemptServer(server, settings, probePort, round, index + 1, fresh.size)
+                if (failure == null) return server
+                lastError = failure
+            }
+        }
+    }
+
+    /** @return null once the tunnel is verified, otherwise why it is not. */
+    private suspend fun attemptServer(
+        server: ServerEntity,
+        settings: Settings,
+        probePort: Int,
+        round: Int,
+        index: Int,
+        total: Int,
+    ): String? {
+        val parsed = ConfigParser.parse(server.raw) ?: return "unparseable config"
+        // A WARP link carries no credentials; one free account is registered on
+        // demand and reused. Failing here must not stop the pass — every other
+        // candidate is still worth trying.
+        val proxy = try {
+            Warp.fill(parsed)
+        } catch (error: Throwable) {
+            Diagnostics.log("WARP unavailable: ${error.message}")
+            return "WARP unavailable: ${error.message}"
         }
 
-        throw IllegalStateException(
-            getString(R.string.error_all_failed, candidates.size) +
-                (lastError?.let { " ($it)" } ?: ""),
+        VpnState.setActiveServer(server.id)
+        // Shape of the config only — never the credentials in it.
+        Diagnostics.log(
+            "round $round try $index/$total: ${proxy.protocol.label} " +
+                "${proxy.server}:${proxy.port} net=${proxy.network} sec=${proxy.security}" +
+                if (server.domesticEntry) " [domestic entry]" else "",
         )
+        VpnState.setProgress(
+            getString(R.string.trying_server_round, index, total, round, server.name),
+        )
+        notifications.update(getString(R.string.state_connecting), server.name)
+
+        try {
+            applyConfig(SingBoxConfig.build(proxy, settings, probePort))
+        } catch (error: Throwable) {
+            Diagnostics.log("core rejected ${server.name}: ${error.message}")
+            markServerFailed(server)
+            return "core error: ${error.message}"
+        }
+
+        // Give the inbound a moment to bind before probing through it.
+        delay(700)
+
+        // Separating these two failures matters: if the loopback inbound is not
+        // even listening the fault is ours, not the server's, and every
+        // candidate would fail identically. Retrying that forever would spin, so
+        // it ends the attempt outright.
+        if (!isLocalInboundUp(probePort)) {
+            Diagnostics.log("local inbound 127.0.0.1:$probePort is not listening")
+            throw IllegalStateException("core inbound 127.0.0.1:$probePort never came up")
+        }
+
+        val delayMs = LatencyTester.measureTunnelDelay(probePort)
+        if (delayMs > 0) {
+            Diagnostics.log("OK ${server.name} — ${delayMs}ms through the tunnel")
+            database.serverDao().updateLatency(
+                id = server.id,
+                latency = delayMs,
+                weight = Latency.weightFor(delayMs),
+                time = System.currentTimeMillis(),
+            )
+            VpnState.setStats(VpnState.stats.value.copy(delayMs = delayMs))
+            settingsRepository.setSelectedServer(server.id)
+            return null
+        }
+
+        Diagnostics.log("${server.name} came up but carried no traffic")
+        markServerFailed(server)
+        return "no traffic"
     }
 
     private suspend fun markServerFailed(server: ServerEntity) {
@@ -260,6 +290,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
     private suspend fun candidateServers(
         requestedServerId: Long,
         settings: Settings,
+        round: Int,
     ): List<ServerEntity> {
         val dao = database.serverDao()
         val preferredId = when {
@@ -268,7 +299,11 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
             else -> 0L
         }
         val preferred = if (preferredId > 0) dao.byId(preferredId) else null
-        val alternatives = dao.best(MAX_CONNECT_ATTEMPTS)
+        // Each failed pass widens the net instead of giving up. The protocol
+        // filter is applied after the query rather than inside it so the SQL
+        // stays one indexed ORDER BY rather than a variable-length IN clause.
+        val width = (FIRST_ROUND_WIDTH * round).coerceAtMost(MAX_CANDIDATES)
+        val alternatives = dao.best(width)
         // A last tier of servers whose entry point is inside Iran. When
         // international routing is cut these are the only ones still reachable,
         // and they cost nothing to include when it is not — they simply lose on
@@ -276,7 +311,7 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         val domestic = dao.bestDomestic(DOMESTIC_FALLBACK_ATTEMPTS)
         return (listOfNotNull(preferred) + alternatives + domestic)
             .distinctBy { it.id }
-            .take(MAX_CONNECT_ATTEMPTS + DOMESTIC_FALLBACK_ATTEMPTS)
+            .filter { settings.allowsProtocol(it.protocol) }
     }
 
     /** One-time core setup; the command server outlives individual configs. */
@@ -454,11 +489,17 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         const val ACTION_STOP = "com.gozar.app.STOP"
         const val EXTRA_SERVER_ID = "server_id"
 
-        /** How many servers to try before giving up on a connect request. */
-        private const val MAX_CONNECT_ATTEMPTS = 6
+        /** Candidates in the first pass; each failed round multiplies this. */
+        private const val FIRST_ROUND_WIDTH = 6
+
+        /** Ceiling on how wide a single pass gets, however many rounds it takes. */
+        private const val MAX_CANDIDATES = 400
 
         /** Extra attempts reserved for domestic-entry servers. */
         private const val DOMESTIC_FALLBACK_ATTEMPTS = 3
+
+        /** Pause between exhausted passes, so an outage is not hammered. */
+        private const val RETRY_PAUSE_MS = 1_500L
 
         @Volatile
         private var libboxReady = false

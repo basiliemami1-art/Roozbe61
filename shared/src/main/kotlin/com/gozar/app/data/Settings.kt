@@ -23,6 +23,13 @@ data class Settings(
     val tunStack: String = "mixed",
     val perAppMode: PerAppMode = PerAppMode.OFF,
     val perAppList: Set<String> = emptySet(),
+    /**
+     * Protocol names ([com.gozar.app.model.Protocol]) the user is willing to
+     * use. Empty means no restriction, which is also what a fresh install gets —
+     * an empty set cannot accidentally exclude a protocol added in a later
+     * version, the way an explicit "all" list would.
+     */
+    val allowedProtocols: Set<String> = emptySet(),
     val autoSelectFastest: Boolean = true,
     val autoUpdateSources: Boolean = true,
     val connectOnBoot: Boolean = false,
@@ -31,4 +38,8 @@ data class Settings(
     val testTimeoutSeconds: Int = 4,
     val maxServers: Int = 10_000,
     val onboarded: Boolean = false,
-)
+) {
+    /** True when [allowedProtocols] is empty, or names this protocol. */
+    fun allowsProtocol(name: String): Boolean =
+        allowedProtocols.isEmpty() || name in allowedProtocols
+}

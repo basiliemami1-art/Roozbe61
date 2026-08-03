@@ -63,6 +63,7 @@ private data class PersistedSettings(
     val remoteDns: String = "https://1.1.1.1/dns-query",
     val testConcurrency: Int = 64,
     val testTimeoutSeconds: Int = 4,
+    val allowedProtocols: Set<String> = emptySet(),
 )
 
 /**
@@ -151,6 +152,7 @@ class Store(private val dir: File) {
             remoteDns = stored.remoteDns,
             testConcurrency = stored.testConcurrency,
             testTimeoutSeconds = stored.testTimeoutSeconds,
+            allowedProtocols = stored.allowedProtocols,
         )
     }
 
@@ -167,6 +169,7 @@ class Store(private val dir: File) {
             remoteDns = settings.remoteDns,
             testConcurrency = settings.testConcurrency,
             testTimeoutSeconds = settings.testTimeoutSeconds,
+            allowedProtocols = settings.allowedProtocols,
         )
         runCatching {
             settingsFile.writeText(json.encodeToString(PersistedSettings.serializer(), persisted))

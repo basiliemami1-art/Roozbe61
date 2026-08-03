@@ -376,6 +376,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { settingsRepository.setRemoteDns(value) }
     }
 
+    fun setAllowedProtocols(value: Set<String>) {
+        viewModelScope.launch { settingsRepository.setAllowedProtocols(value) }
+    }
+
     fun setAutoSelectFastest(value: Boolean) {
         viewModelScope.launch { settingsRepository.setAutoSelectFastest(value) }
     }

@@ -146,6 +146,10 @@
     <string name="error_vpn_permission">VPN permission was denied</string>
     <string name="error_no_server">Select a server first</string>
     <string name="trying_server">Trying server %1$d of %2$d — %3$s</string>
+    <string name="trying_server_round">Trying %1$d of %2$d (round %3$d) — %4$s</string>
+    <string name="protocols">Protocols</string>
+    <string name="protocols_all">All</string>
+    <string name="protocols_hint">Leave everything unselected to use all of them</string>
     <string name="error_all_failed">None of the %1$d servers tried carried any traffic</string>
     <string name="verifying">Checking that traffic flows…</string>
     <string name="error_generic">Error: %1$s</string>

@@ -15,22 +15,31 @@ import com.gozar.desktop.core.TrafficMonitor
 import com.gozar.desktop.data.ServerRecord
 import com.gozar.desktop.data.SourceRecord
 import com.gozar.desktop.data.Store
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class ConnectionStatus { DISCONNECTED, CONNECTING, CONNECTED, STOPPING }
 
@@ -40,6 +49,12 @@ sealed interface Busy {
     data class Refreshing(val done: Int, val total: Int, val source: String) : Busy
     data class Testing(val done: Int, val total: Int, val alive: Int) : Busy
 }
+
+/**
+ * Which server the connect loop is on. Kept structured rather than pre-rendered
+ * so the window can phrase it in the user's language.
+ */
+data class Attempt(val round: Int, val index: Int, val total: Int, val server: String)
 
 /** Per-second rates and the running totals for this session. */
 data class Throughput(
@@ -81,8 +96,8 @@ class AppState(
     private val _busy = MutableStateFlow<Busy?>(null)
     val busy: StateFlow<Busy?> = _busy.asStateFlow()
 
-    private val _progress = MutableStateFlow<String?>(null)
-    val progress: StateFlow<String?> = _progress.asStateFlow()
+    private val _progress = MutableStateFlow<Attempt?>(null)
+    val progress: StateFlow<Attempt?> = _progress.asStateFlow()
 
     private val _delayMs = MutableStateFlow(0)
     val delayMs: StateFlow<Int> = _delayMs.asStateFlow()
@@ -101,6 +116,7 @@ class AppState(
     val throughput: StateFlow<Throughput> = _throughput.asStateFlow()
 
     private var busyJob: Job? = null
+    private var connectJob: Job? = null
     private var trafficJob: Job? = null
     private var monitor: TrafficMonitor? = null
     private var proxyPort = 0
@@ -165,82 +181,121 @@ class AppState(
 
     // --------------------------------------------------------------- Sources
 
+    private var lastPublishAt = 0L
+
+    /**
+     * Pushes the working set to the screen while a sweep is still running.
+     *
+     * Throttled because a refresh lands tens of thousands of configs across
+     * fifty sources: re-sorting and re-emitting the whole list on every one of
+     * them would spend more time in Compose than on the network.
+     */
+    private fun publishServers(servers: Collection<ServerRecord>, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastPublishAt < PUBLISH_INTERVAL_MS) return
+        lastPublishAt = now
+        _servers.value = servers.sortedBy { it.sortWeight }.take(_settings.value.maxServers)
+    }
+
     fun refreshSources() {
         if (busyJob?.isActive == true) return
         busyJob = scope.launch {
-            _busy.value = Busy.Refreshing(0, 1, "")
             val enabled = _sources.value.filter { it.enabled }
-            if (enabled.isEmpty()) {
-                _busy.value = null
-                return@launch
-            }
+            if (enabled.isEmpty()) return@launch
+            val keptDisabled = _sources.value.filterNot { it.enabled }
+            _busy.value = Busy.Refreshing(0, enabled.size, "")
+
             // Subscription endpoints tolerate parallel requests; t.me does not.
             val subs = Semaphore(6)
             val telegram = Semaphore(3)
-            val byKey = _servers.value.associateBy { it.uniqueKey }.toMutableMap()
+            // Guards every shared structure below. The sources genuinely run at
+            // once now — they used to be launched inside a plain `for`, which
+            // meant the semaphores guarded nothing and fifty downloads happened
+            // one after another.
+            val guard = Mutex()
+            val byKey = LinkedHashMap<String, ServerRecord>()
+            for (server in _servers.value) byKey[server.uniqueKey] = server
             var nextId = (_servers.value.maxOfOrNull { it.id } ?: 0L) + 1
-            var done = 0
-            var added = 0
-            val updatedSources = enabled.toMutableList()
+            val updated = enabled.toMutableList()
+            val done = AtomicInteger(0)
+            val added = AtomicInteger(0)
 
-            for ((index, source) in enabled.withIndex()) {
-                val limiter = if (source.kind == "TELEGRAM") telegram else subs
-                limiter.withPermit {
-                    if (source.kind == "TELEGRAM") delay(250)
-                    val outcome = runCatching { SourceLoader.load(source.url) }
-                    val configs = outcome.getOrNull()?.configs
-                    // Recorded even when the body is empty: a lapsed paid
-                    // subscription returns nothing, and the expiry explains it.
-                    val quota = outcome.getOrNull()?.info
-                    if (quota != null) {
-                        updatedSources[index] = updatedSources[index].copy(
-                            upload = quota.upload,
-                            download = quota.download,
-                            total = quota.total,
-                            expiresAt = quota.expiresAt,
-                        )
-                    }
-                    if (configs == null) {
-                        updatedSources[index] = updatedSources[index].copy(
-                            lastError = outcome.exceptionOrNull()?.message?.take(120),
-                            lastUpdated = System.currentTimeMillis(),
-                        )
-                    } else {
-                        for (config in configs) {
-                            if (byKey.containsKey(config.uniqueKey)) continue
-                            byKey[config.uniqueKey] = ServerRecord(
-                                id = nextId++,
-                                uniqueKey = config.uniqueKey,
-                                name = config.name.take(120)
-                                    .ifBlank { "${config.server}:${config.port}" },
-                                protocol = config.protocol.name,
-                                address = config.server,
-                                port = config.port,
-                                raw = config.raw,
-                                sourceName = source.name,
-                            )
-                            added++
+            try {
+                coroutineScope {
+                    enabled.mapIndexed { index, source ->
+                        async {
+                            val limiter = if (source.kind == "TELEGRAM") telegram else subs
+                            limiter.withPermit {
+                                if (source.kind == "TELEGRAM") delay(250)
+                                val outcome = runCatching { SourceLoader.load(source.url) }
+                                val result = outcome.getOrNull()
+
+                                guard.withLock {
+                                    var record = updated[index]
+                                    // Recorded even when the body is empty: that
+                                    // is what a lapsed paid subscription returns,
+                                    // and the expiry is the explanation.
+                                    result?.info?.let { quota ->
+                                        record = record.copy(
+                                            upload = quota.upload,
+                                            download = quota.download,
+                                            total = quota.total,
+                                            expiresAt = quota.expiresAt,
+                                        )
+                                    }
+                                    val configs = result?.configs
+                                    record = if (configs == null) {
+                                        record.copy(
+                                            lastError = outcome.exceptionOrNull()
+                                                ?.message?.take(120),
+                                            lastUpdated = System.currentTimeMillis(),
+                                        )
+                                    } else {
+                                        for (config in configs) {
+                                            if (byKey.containsKey(config.uniqueKey)) continue
+                                            byKey[config.uniqueKey] = ServerRecord(
+                                                id = nextId++,
+                                                uniqueKey = config.uniqueKey,
+                                                name = config.name.take(120)
+                                                    .ifBlank { "${config.server}:${config.port}" },
+                                                protocol = config.protocol.name,
+                                                address = config.server,
+                                                port = config.port,
+                                                raw = config.raw,
+                                                sourceName = source.name,
+                                            )
+                                            added.incrementAndGet()
+                                        }
+                                        record.copy(
+                                            configCount = configs.size,
+                                            lastUpdated = System.currentTimeMillis(),
+                                            lastError = null,
+                                        )
+                                    }
+                                    updated[index] = record
+                                    // Straight onto the screen, rather than after
+                                    // all fifty sources have answered.
+                                    publishServers(byKey.values)
+                                    _sources.value = updated + keptDisabled
+                                }
+                            }
+                            _busy.value =
+                                Busy.Refreshing(done.incrementAndGet(), enabled.size, source.name)
                         }
-                        updatedSources[index] = updatedSources[index].copy(
-                            configCount = configs.size,
-                            lastUpdated = System.currentTimeMillis(),
-                            lastError = null,
-                        )
-                    }
+                    }.awaitAll()
                 }
-                done++
-                _busy.value = Busy.Refreshing(done, enabled.size, source.name)
+            } finally {
+                // No lock needed: coroutineScope has already waited for every
+                // child, including when the user cancelled the sweep. Whatever
+                // arrived before that is kept rather than thrown away.
+                publishServers(byKey.values, force = true)
+                _sources.value = updated + keptDisabled
+                store.saveServers(_servers.value)
+                store.saveSources(_sources.value)
+                _busy.value = null
             }
-
-            val merged = byKey.values.sortedBy { it.sortWeight }.take(_settings.value.maxServers)
-            _servers.value = merged
-            store.saveServers(merged)
-            val keptDisabled = _sources.value.filterNot { it.enabled }
-            _sources.value = updatedSources + keptDisabled
-            store.saveSources(_sources.value)
-            log("sources updated — $added new configs from ${enabled.size} sources")
-            _busy.value = null
-            if (added > 0) testAll()
+            log("sources updated — ${added.get()} new configs from ${enabled.size} sources")
+            if (added.get() > 0) testAll()
         }
     }
 
@@ -279,8 +334,11 @@ class AppState(
             _busy.value = Busy.Testing(0, 1, 0)
             val settings = _settings.value
             val prober = Prober(settings.testConcurrency, settings.testTimeoutSeconds * 1000)
+            val current = _servers.value
+            // Declared outside the try so a cancelled sweep can still publish
+            // every measurement it managed to take.
+            val byId = current.associateByTo(LinkedHashMap()) { it.id }
             try {
-                val current = _servers.value
                 val targets = current
                     .sortedWith(compareBy({ it.latency != Latency.UNTESTED }, { it.sortWeight }))
                     .take(2_000)
@@ -292,23 +350,29 @@ class AppState(
                             udpOnly = server.protocol in UDP_PROTOCOLS,
                         )
                     }
-                val results = HashMap<Long, Prober.Outcome>()
+                var answered = 0
                 prober.sweep(
                     targets = targets,
-                    onBatch = { batch -> batch.forEach { results[it.id] = it } },
+                    onBatch = { batch ->
+                        for (outcome in batch) {
+                            val server = byId[outcome.id] ?: continue
+                            if (outcome.latencyMs > 0) answered++
+                            byId[outcome.id] = server.copy(
+                                latency = outcome.latencyMs,
+                                domesticEntry = outcome.domesticEntry,
+                            )
+                        }
+                        // Applied as each batch lands, so the ranking settles in
+                        // front of the user instead of after the whole sweep.
+                        publishServers(byId.values)
+                    },
                     onProgress = { _busy.value = Busy.Testing(it.done, it.total, it.alive) },
                 )
-                val updated = _servers.value.map { server ->
-                    val outcome = results[server.id] ?: return@map server
-                    server.copy(
-                        latency = outcome.latencyMs,
-                        domesticEntry = outcome.domesticEntry,
-                    )
-                }
-                _servers.value = updated
-                store.saveServers(updated)
-                log("tested ${targets.size} servers, ${results.values.count { it.latencyMs > 0 }} answered")
+                log("tested ${targets.size} servers, $answered answered")
             } finally {
+                // A cancelled sweep still keeps everything it measured.
+                publishServers(byId.values, force = true)
+                store.saveServers(_servers.value)
                 prober.shutdown()
                 _busy.value = null
             }
@@ -329,17 +393,19 @@ class AppState(
         // else would race it.
         if (previous == ConnectionStatus.CONNECTING || previous == ConnectionStatus.STOPPING) return
         _status.value = ConnectionStatus.CONNECTING
-        scope.launch {
+        connectJob = scope.launch {
             // Clicking a different server while connected switches to it.
             // Without this the click did nothing at all.
             if (previous == ConnectionStatus.CONNECTED) {
                 withContext(Dispatchers.IO) { teardown() }
             }
             try {
-                val connected = connectWithFailover(serverId)
+                val connected = keepTrying(serverId)
                 _status.value = ConnectionStatus.CONNECTED
                 _progress.value = null
                 log("connected — ${connected.name}")
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (error: Throwable) {
                 log("connect failed: ${error.message}")
                 _progress.value = null
@@ -348,86 +414,142 @@ class AppState(
         }
     }
 
+    /** The only thing that ends a connect attempt short of success. */
+    fun cancelConnect() {
+        if (_status.value != ConnectionStatus.CONNECTING) return
+        connectJob?.cancel()
+        connectJob = null
+        log("connect cancelled")
+        _progress.value = null
+        stop()
+    }
+
     /**
-     * Same contract as on Android: a server is only accepted once a real request
-     * has gone through it. A handshake probe cannot tell a working proxy from
-     * one that will fail at authentication.
+     * Tries servers until one carries traffic, or the user cancels.
+     *
+     * A fixed budget of attempts was the wrong shape: with tens of thousands of
+     * scraped servers, most of which are dead on any given day, running out
+     * after six left the user pressing a button that had quietly stopped
+     * trying. Each exhausted pass widens the net and starts again, so the only
+     * thing that ends this is success or cancellation.
+     *
+     * A server is still only accepted once a real request has gone through it —
+     * a handshake cannot tell a working proxy from one that fails at
+     * authentication.
      */
-    private suspend fun connectWithFailover(requestedId: Long): ServerRecord {
-        val settings = _settings.value
-        val all = _servers.value
-        // Same rule as Android: an explicit click always wins, and otherwise the
-        // last-used server is only pinned when the user has turned auto-pick off.
+    private suspend fun keepTrying(requestedId: Long): ServerRecord {
+        val tried = HashSet<Long>()
+        var round = 1
+        var lastError: String? = null
+
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val settings = _settings.value
+            val candidates = rank(requestedId, round, settings)
+            if (candidates.isEmpty()) {
+                error(
+                    if (_servers.value.isEmpty()) "no servers yet — update the sources first"
+                    else "no servers match the protocols you allowed",
+                )
+            }
+            val fresh = candidates.filterNot { it.id in tried }
+            if (fresh.isEmpty()) {
+                log("round $round exhausted (${lastError ?: "no reason recorded"}); widening")
+                tried.clear()
+                round++
+                // A short pause so a transient outage is not hammered, and so
+                // any refresh or test running alongside can land new results
+                // before the next pass ranks the list again.
+                delay(RETRY_PAUSE_MS)
+                continue
+            }
+            for ((index, server) in fresh.withIndex()) {
+                currentCoroutineContext().ensureActive()
+                tried += server.id
+                val failure = attempt(server, settings, round, index + 1, fresh.size)
+                if (failure == null) return server
+                lastError = failure
+            }
+        }
+    }
+
+    /**
+     * The candidates for one pass, widening with each failed round. Re-read
+     * every time because a sweep running alongside keeps changing the ranking.
+     */
+    private fun rank(requestedId: Long, round: Int, settings: Settings): List<ServerRecord> {
+        val all = _servers.value.filter { settings.allowsProtocol(it.protocol) }
+        // An explicit click always wins; otherwise the last-used server is only
+        // pinned when the user has turned auto-pick off.
         val preferredId = when {
             requestedId > 0 -> requestedId
             !settings.autoSelectFastest -> settings.selectedServerId
             else -> 0L
         }
         val preferred = if (preferredId > 0) all.firstOrNull { it.id == preferredId } else null
-        val best = all.sortedBy { it.sortWeight }.take(MAX_ATTEMPTS)
+        val width = (FIRST_ROUND_WIDTH * round).coerceAtMost(MAX_CANDIDATES)
+        val best = all.sortedBy { it.sortWeight }.take(width)
         // Domestic-entry servers are kept in reserve: during an international
         // cut they are the only ones reachable, and when routing is fine they
         // simply lose on latency and never get tried.
-        val domestic = all.filter { it.domesticEntry }.sortedBy { it.sortWeight }.take(3)
-        val candidates = (listOfNotNull(preferred) + best + domestic)
-            .distinctBy { it.id }
-            .take(MAX_ATTEMPTS + 3)
+        val domestic = all.filter { it.domesticEntry }.sortedBy { it.sortWeight }
+            .take(DOMESTIC_ATTEMPTS)
+        return (listOfNotNull(preferred) + best + domestic).distinctBy { it.id }
+    }
 
-        if (candidates.isEmpty()) error("no servers yet — update the sources first")
-        log("connecting — ${candidates.size} candidates")
-
-        var lastError: String? = null
-        for ((index, server) in candidates.withIndex()) {
-            val parsed = ConfigParser.parse(server.raw) ?: continue
-            // A WARP link carries no credentials; one free account is registered
-            // on demand and reused. A failure here must not stop the sweep.
-            val proxy = try {
-                Warp.fill(parsed)
-            } catch (error: Throwable) {
-                lastError = "WARP unavailable: ${error.message}"
-                log(lastError!!)
-                continue
-            }
-            _activeServerId.value = server.id
-            _progress.value = "Trying ${index + 1}/${candidates.size} — ${server.name}"
-            log(
-                "try ${index + 1}/${candidates.size}: ${proxy.protocol.label} " +
-                    "${proxy.server}:${proxy.port}" +
-                    if (server.domesticEntry) " [domestic]" else "",
-            )
-
-            val port = try {
-                withContext(Dispatchers.IO) { core.start(proxy, settings) }
-            } catch (error: Throwable) {
-                lastError = error.message
-                log("core would not start: ${error.message}")
-                continue
-            }
-            proxyPort = port
-
-            if (!TunnelProbe.inboundIsUp(port)) {
-                lastError = "core inbound never came up"
-                log(lastError!!)
-                core.stop()
-                continue
-            }
-            val result = TunnelProbe.measure(port)
-            if (result.delayMs > 0) {
-                _delayMs.value = result.delayMs
-                markLatency(server.id, result.delayMs)
-                SystemProxy.enable(port)
-                log("system proxy set to 127.0.0.1:$port")
-                _settings.value = settings.copy(selectedServerId = server.id)
-                store.saveSettings(_settings.value)
-                watchTraffic()
-                return server
-            }
-            lastError = result.error ?: "no traffic"
-            log("${server.name} carried no traffic (${result.error})")
-            markLatency(server.id, Latency.FAILED)
-            core.stop()
+    /** @return null once the server is carrying traffic, otherwise why it is not. */
+    private suspend fun attempt(
+        server: ServerRecord,
+        settings: Settings,
+        round: Int,
+        index: Int,
+        total: Int,
+    ): String? {
+        val parsed = ConfigParser.parse(server.raw) ?: return "unparseable config"
+        // A WARP link carries no credentials; one free account is registered on
+        // demand and reused. A failure here must not stop the pass.
+        val proxy = try {
+            Warp.fill(parsed)
+        } catch (error: Throwable) {
+            log("WARP unavailable: ${error.message}")
+            return "WARP unavailable: ${error.message}"
         }
-        error("none of the ${candidates.size} servers carried traffic (${lastError ?: "unknown"})")
+        _activeServerId.value = server.id
+        _progress.value = Attempt(round, index, total, server.name)
+        log(
+            "round $round try $index/$total: ${proxy.protocol.label} " +
+                "${proxy.server}:${proxy.port}" +
+                if (server.domesticEntry) " [domestic]" else "",
+        )
+
+        val port = try {
+            withContext(Dispatchers.IO) { core.start(proxy, settings) }
+        } catch (error: Throwable) {
+            log("core would not start: ${error.message}")
+            return "core error: ${error.message}"
+        }
+        proxyPort = port
+
+        if (!TunnelProbe.inboundIsUp(port)) {
+            log("core inbound never came up")
+            core.stop()
+            return "core inbound never came up"
+        }
+        val result = TunnelProbe.measure(port)
+        if (result.delayMs > 0) {
+            _delayMs.value = result.delayMs
+            markLatency(server.id, result.delayMs)
+            SystemProxy.enable(port)
+            log("system proxy set to 127.0.0.1:$port")
+            _settings.value = settings.copy(selectedServerId = server.id)
+            store.saveSettings(_settings.value)
+            watchTraffic()
+            return null
+        }
+        log("${server.name} carried no traffic (${result.error})")
+        markLatency(server.id, Latency.FAILED)
+        core.stop()
+        return result.error ?: "no traffic"
     }
 
     /**
@@ -517,7 +639,13 @@ class AppState(
     }
 
     companion object {
-        private const val MAX_ATTEMPTS = 6
+        /** Candidates in the first pass; each failed round multiplies this. */
+        private const val FIRST_ROUND_WIDTH = 6
+        private const val MAX_CANDIDATES = 400
+        private const val DOMESTIC_ATTEMPTS = 3
+        private const val RETRY_PAUSE_MS = 1_500L
+        private const val PUBLISH_INTERVAL_MS = 400L
+
         private val UDP_PROTOCOLS = setOf(
             Protocol.HYSTERIA2.name,
             Protocol.TUIC.name,

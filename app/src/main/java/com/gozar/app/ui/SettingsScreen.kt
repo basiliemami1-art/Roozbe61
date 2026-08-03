@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -37,6 +39,7 @@ import com.gozar.app.BuildConfig
 import com.gozar.app.R
 import com.gozar.app.data.PerAppMode
 import com.gozar.app.data.ThemeMode
+import com.gozar.app.model.Protocol
 import com.gozar.app.ui.components.GlassCard
 import com.gozar.app.ui.components.SectionHeader
 
@@ -217,6 +220,22 @@ fun SettingsScreen(viewModel: MainViewModel) {
             }
         }
 
+        SectionHeader(stringResource(R.string.protocols))
+        GlassCard(Modifier.padding(horizontal = 16.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    text = stringResource(R.string.protocols_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                ProtocolPicker(
+                    chosen = settings.allowedProtocols,
+                    onChange = viewModel::setAllowedProtocols,
+                )
+            }
+        }
+
         SectionHeader(stringResource(R.string.diagnostics))
         GlassCard(Modifier.padding(horizontal = 16.dp)) {
             Column(Modifier.padding(16.dp)) {
@@ -310,6 +329,37 @@ private fun SwitchRow(
             }
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * Which protocols the connect loop may use. An empty selection means all of
+ * them, so a protocol added in a later version is not silently excluded by a
+ * choice made today.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProtocolPicker(chosen: Set<String>, onChange: (Set<String>) -> Unit) {
+    // Nine chips will not fit one line on a phone, and a horizontal scroller
+    // hides the options the user came here to see.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = chosen.isEmpty(),
+            onClick = { onChange(emptySet()) },
+            label = { Text(stringResource(R.string.protocols_all)) },
+        )
+        Protocol.entries.forEach { protocol ->
+            FilterChip(
+                selected = protocol.name in chosen,
+                onClick = {
+                    onChange(
+                        if (protocol.name in chosen) chosen - protocol.name
+                        else chosen + protocol.name,
+                    )
+                },
+                label = { Text(protocol.label, maxLines = 1) },
+            )
+        }
     }
 }
 

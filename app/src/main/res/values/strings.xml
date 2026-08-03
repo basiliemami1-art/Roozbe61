@@ -147,6 +147,10 @@
     <string name="error_vpn_permission">اجازه ساخت VPN داده نشد</string>
     <string name="error_no_server">ابتدا یک سرور انتخاب کنید</string>
     <string name="trying_server">آزمایش سرور %1$d از %2$d — %3$s</string>
+    <string name="trying_server_round">آزمایش %1$d از %2$d (دور %3$d) — %4$s</string>
+    <string name="protocols">پروتکل‌ها</string>
+    <string name="protocols_all">همه</string>
+    <string name="protocols_hint">اگر چیزی انتخاب نکنید، از همه استفاده می‌شود</string>
     <string name="error_all_failed">هیچ‌کدام از %1$d سرور آزمایش‌شده ترافیک عبور نداد</string>
     <string name="verifying">در حال بررسی عبور ترافیک…</string>
     <string name="error_generic">خطا: %1$s</string>

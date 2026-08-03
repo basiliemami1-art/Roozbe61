@@ -5,6 +5,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -21,6 +23,43 @@ val Mint = Color(0xFF00E6B0)
 val MintDeep = Color(0xFF00B98D)
 val Amber = Color(0xFFFFB020)
 val Rose = Color(0xFFFF5C7A)
+val Sky = Color(0xFF43C6FF)
+
+/**
+ * Shades the Material scheme has no slot for.
+ *
+ * A desktop window is mostly chrome — a sidebar, a raised content plane, rows
+ * that lift on hover — and Material3 only names one surface. Carrying the extra
+ * steps here keeps the screens from hard-coding hex values.
+ */
+data class Elevations(
+    val sidebar: Color,
+    val canvas: Color,
+    val card: Color,
+    val cardHover: Color,
+    val hairline: Color,
+    val glow: Color,
+)
+
+private val DarkElevations = Elevations(
+    sidebar = Color(0xFF0D0D17),
+    canvas = Color(0xFF0B0B14),
+    card = Color(0xFF161622),
+    cardHover = Color(0xFF1D1D2C),
+    hairline = Color(0xFF262637),
+    glow = Color(0xFF7C6CFF),
+)
+
+private val LightElevations = Elevations(
+    sidebar = Color(0xFFF1EFFA),
+    canvas = Color(0xFFF7F6FC),
+    card = Color(0xFFFFFFFF),
+    cardHover = Color(0xFFF4F2FD),
+    hairline = Color(0xFFE4E1F0),
+    glow = Color(0xFF9C90FF),
+)
+
+val LocalElevations = staticCompositionLocalOf { DarkElevations }
 
 private val DarkColors = darkColorScheme(
     primary = Violet,
@@ -32,12 +71,12 @@ private val DarkColors = darkColorScheme(
     tertiary = Rose,
     background = Color(0xFF0B0B14),
     onBackground = Color(0xFFE8E7F0),
-    surface = Color(0xFF14141F),
+    surface = Color(0xFF161622),
     onSurface = Color(0xFFE8E7F0),
-    surfaceVariant = Color(0xFF1E1E2D),
-    onSurfaceVariant = Color(0xFFA9A7BC),
+    surfaceVariant = Color(0xFF20202F),
+    onSurfaceVariant = Color(0xFF9F9DB4),
     outline = Color(0xFF34334A),
-    outlineVariant = Color(0xFF26263A),
+    outlineVariant = Color(0xFF262637),
     error = Rose,
 )
 
@@ -101,9 +140,13 @@ fun GozarTheme(theme: ThemeMode, content: @Composable () -> Unit) {
         // system" resolves to dark, which is what this app is designed around.
         ThemeMode.SYSTEM -> true
     }
-    MaterialTheme(
-        colorScheme = if (dark) DarkColors else LightColors,
-        typography = GozarTypography,
-        content = content,
-    )
+    CompositionLocalProvider(
+        LocalElevations provides if (dark) DarkElevations else LightElevations,
+    ) {
+        MaterialTheme(
+            colorScheme = if (dark) DarkColors else LightColors,
+            typography = GozarTypography,
+            content = content,
+        )
+    }
 }
