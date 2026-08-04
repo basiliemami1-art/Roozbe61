@@ -310,10 +310,11 @@ jobs:
   # published version must not be missing half of what it claims to ship.
   release:
     needs: [build, windows]
-    if: >-
-      always() && needs.build.result == 'success' &&
-      (github.ref == 'refs/heads/main' ||
-       (startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success'))
+    # On one line deliberately. In a folded scalar YAML keeps the newline of any
+    # line indented further than the first, and a newline inside an expression
+    # makes the whole workflow invalid — it fails before any job starts, with no
+    # annotation to say why.
+    if: always() && needs.build.result == 'success' && (github.ref == 'refs/heads/main' || (startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success'))
     runs-on: ubuntu-latest
 
     steps:
