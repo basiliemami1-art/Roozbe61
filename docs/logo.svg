@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 150" width="520" height="150" role="img" aria-label="Gozar">
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7C6CFF"/>
+      <stop offset="100%" stop-color="#43C6FF"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00E6B0"/>
+      <stop offset="100%" stop-color="#00B98D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The mark: an arrow breaking through a barrier, the same one the app
+       draws for its launcher and tray icons. -->
+  <rect x="10" y="15" width="120" height="120" rx="34" fill="url(#mark)"/>
+  <rect x="28" y="79" width="29" height="11" rx="5" fill="#FFFFFF" opacity="0.55"/>
+  <rect x="95" y="79" width="29" height="11" rx="5" fill="#FFFFFF" opacity="0.55"/>
+  <path d="M70 33 L104 74 L83 74 L83 120 L57 120 L57 74 L36 74 Z" fill="url(#arrow)"/>
+
+  <text x="152" y="80" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="52" font-weight="700" fill="#E8E7F0">Gozar</text>
+  <text x="154" y="110" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="19" fill="#9F9DB4">Free internet, simply</text>
+</svg>

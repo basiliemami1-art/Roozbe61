@@ -1,82 +1,72 @@
 <div dir="rtl">
 
-## گذر ۱.۰.۰
+## گذر ۱.۱.۰
 
-اولین انتشار پایدار — برای **اندروید** و **ویندوز**.
+### مهم‌ترین تغییر: رتبه‌بندی بر پایه‌ی سرعت واقعی
+
+تا نسخه‌ی قبل، سرورها بر اساس **تأخیر** مرتب می‌شدند — همان کاری که Hiddify هم
+می‌کند. آن عدد نمی‌گوید سروری که فوری جواب می‌دهد پهنای باندی هم برایش مانده یا
+نه، و این سرورها بین هزاران نفر مشترک‌اند.
+
+حالا یک مرحله‌ی سوم اضافه شده: ۸ سرور برتر یک **دانلود واقعی** می‌گیرند و
+رتبه‌بندی نهایی بر KB/s اندازه‌گیری‌شده بنا می‌شود. تک‌به‌تک اجرا می‌شود، چون دو
+دانلود هم‌زمان خط خودتان را تقسیم می‌کنند و اندازه‌گیری را بی‌معنا.
+
+### افزودن دستی کانفیگ، هر پروتکلی
+
+یک ورودی که هر چه بچسبانید را می‌گیرد: لینک کانفیگ، ده‌ها تا با هم، بدنه‌ی
+base64، لینک اشتراک، یا کانال تلگرام. ویندوز قبلاً اصلاً این امکان را نداشت.
+
+### سرورهای مرده حذف می‌شوند
+
+بعد از هر تست، سرورهایی که جواب ندادند از لیست پاک می‌شوند. تست‌نشده‌ها و
+ستاره‌دارها می‌مانند.
+
+### برنامه سبک شد
+
+سه ایراد واقعی: سقف ۱۰ هزار سرور (حالا ۳ هزار)، مرتب‌سازی کل لیست در هر بار
+رسم صفحه، و سریالایز شدن کل لیست در هر تلاش اتصال.
+
+### منابع بیشتر
+
+۶۵ منبع، از جمله فهرست‌های MahsaNet **به تفکیک اپراتور** (همراه اول و ایرانسل)
+— چون گلوگاه معمولاً مسیریابی بین‌المللی خودِ اپراتور است.
 
 ### دانلود
 
 | | فایل |
 |---|---|
-| **اندروید** | `app-arm64-v8a-release.apk` — مگر بدانید معماری دیگری لازم دارید |
-| **ویندوز** | `Gozar-1.0.0.msi` — بدون نیاز به دسترسی مدیر |
-
-### چه می‌کند
-
-کانفیگ‌ها را خودش از **۶۲ منبع** (۴۰ اشتراک عمومی و ۲۲ کانال تلگرام) جمع می‌کند،
-و سرورها را در سه مرحله می‌سنجد:
-
-۱. **پینگ** روی همه — فقط برای باریک کردن میدان
-۲. **درخواست واقعی از داخل تونل** برای ۵۰ سرور برتر — که ثابت می‌کند سرور واقعاً کار می‌کند
-۳. **دانلود واقعی** از ۸ سرور برتر — که سرعت واقعی را می‌سنجد
-
-مرحله‌ی سوم مهم است: دست‌دادن TCP فقط می‌گوید چیزی روی آن پورت گوش می‌دهد، و
-سرورهای رایگان بین هزاران نفر مشترک‌اند. رتبه‌بندی نهایی بر **پهنای باند
-اندازه‌گیری‌شده** است، نه تأخیر.
-
-### پروتکل‌ها
-
-VLESS (با Reality و XTLS)، VMess، Trojan، Shadowsocks، Hysteria2، TUIC،
-WireGuard، Cloudflare WARP، SOCKS و HTTP.
-
-### نکته‌ها
-
-- **اندروید ۸ به بالا.** WARP به اندروید ۱۳ به بالا نیاز دارد (تولید کلید X25519).
-- **ویندوز** از پروکسی سیستمی استفاده می‌کند نه TUN — نه درایور می‌خواهد، نه
-  دسترسی مدیر، و اگر برنامه بسته شود مسیریابی سیستم سالم می‌ماند.
-- بار اول منابع را می‌گیرد و می‌سنجد؛ چند دقیقه طول می‌کشد.
-- کانفیگ‌های عمومی ذاتاً ناپایدارند. اگر کند بود، «به‌روزرسانی منابع» و بعد
-  «تست همه» را بزنید.
-- بدون حساب کاربری، بدون تله‌متری، بدون تبلیغات.
+| اندروید | `app-arm64-v8a-release.apk` |
+| ویندوز | `Gozar-Windows-x64.msi` |
 
 </div>
 
 ---
 
-## Gozar 1.0.0
+## Gozar 1.1.0
 
-First stable release, for **Android** and **Windows**.
+**Servers are now ranked on measured throughput, not latency.** Previously they
+were ordered by delay — which is what Hiddify does too. That number says nothing
+about whether a fast-answering server has any bandwidth left, and these are free
+servers shared by thousands of people. A third stage now puts a real download
+through the best 8 and ranks on measured KB/s. It runs one at a time, because
+two at once would split your own line and make the measurement meaningless.
+
+**Manual configs, any protocol.** One field takes a config link, dozens at once,
+a base64 subscription body, a subscription URL, or a Telegram channel — and
+works out which it is. Windows previously had no way to add one at all.
+
+**Dead servers are removed** after each test, keeping untested and starred ones.
+
+**The app got lighter**: the list ceiling dropped from 10,000 to 3,000, the
+desktop no longer re-sorts everything on every recomposition, and the whole list
+is no longer serialised to disk on every connect attempt.
+
+**65 sources**, including MahsaNet's lists split by Iranian mobile operator.
 
 | | File |
 |---|---|
-| **Android** | `app-arm64-v8a-release.apk` unless you know you need another ABI |
-| **Windows** | `Gozar-1.0.0.msi` — no administrator rights needed |
-
-### How servers are chosen
-
-Configs are collected from **62 sources** (40 subscriptions, 22 Telegram
-channels), then measured in three stages: a handshake ping over everything, a
-real request through the proxy for the best 50, and a real download through the
-best 8.
-
-That last stage is the point. A handshake only proves something is listening,
-and these are free servers shared by thousands of people — so the final ranking
-is built on **measured throughput**, not latency. Hiddify ranks on
-`lowest-delay`; this does not.
-
-### Protocols
-
-VLESS (Reality, XTLS), VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard,
-Cloudflare WARP, SOCKS and HTTP.
-
-### Notes
-
-- **Android 8+.** WARP additionally needs Android 13+, which is where the
-  platform gained X25519 key generation.
-- **Windows** uses the system proxy rather than a TUN device: no driver, no
-  elevation prompt, and killing the app cannot leave routing broken.
-- Public configs are inherently unstable. If it is slow, update the sources and
-  run the test again.
-- No account, no telemetry, no ads.
+| Android | `app-arm64-v8a-release.apk` |
+| Windows | `Gozar-Windows-x64.msi` |
 
 GPL-3.0, inherited from sing-box.

@@ -264,6 +264,11 @@ jobs:
         run: |
           mkdir -p dist
           find desktop/build/compose/binaries -name '*.msi' -exec cp {} dist/ \;
+          # A second copy under a name that never changes, so
+          # releases/latest/download/Gozar-Windows-x64.msi keeps working when
+          # the version does change. The versioned file ships too.
+          SRC="$(find dist -name 'Gozar-*.msi' | head -1)"
+          [ -n "$SRC" ] && cp "$SRC" dist/Gozar-Windows-x64.msi
           ls -lh dist/
 
       # The only check that means anything: what is actually inside the file the

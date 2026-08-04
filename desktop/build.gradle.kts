@@ -29,7 +29,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Gozar"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             description = "Free internet, simply"
             vendor = "Gozar"
             copyright = "GPL-3.0"
