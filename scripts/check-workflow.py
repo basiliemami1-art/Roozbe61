@@ -26,6 +26,33 @@ except ImportError:
 WORKFLOWS = pathlib.Path(".github/workflows")
 
 
+class StrictLoader(yaml.SafeLoader):
+    """Rejects duplicate mapping keys.
+
+    The default loader keeps the last one silently, so an edit that leaves the
+    tail of the block it replaced parses cleanly here and is rejected by
+    Actions — again before any job runs and with nothing to read.
+    """
+
+
+def _no_duplicates(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                "while mapping", node.start_mark,
+                f"duplicate key {key!r}", key_node.start_mark,
+            )
+        seen.add(key)
+    return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+
+StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
+)
+
+
 def walk(node, path=""):
     """Yields (path, key, value) for every mapping entry."""
     if isinstance(node, dict):
@@ -43,9 +70,9 @@ def main() -> int:
     problems = []
     for file in sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml")):
         try:
-            doc = yaml.safe_load(file.read_text(encoding="utf-8"))
+            doc = yaml.load(file.read_text(encoding="utf-8"), Loader=StrictLoader)
         except yaml.YAMLError as error:
-            problems.append(f"{file}: not valid YAML: {error}")
+            problems.append(f"{file}: {error}")
             continue
 
         for where, key, value in walk(doc):
