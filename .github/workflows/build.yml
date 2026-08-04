@@ -3,6 +3,9 @@ name: Build
 on:
   push:
     branches: [main, master]
+    # A version tag builds the same way and publishes a permanent release
+    # instead of overwriting the rolling one.
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -302,12 +305,20 @@ jobs:
   # One job publishes both platforms: when each job wrote to the rolling tag
   # itself they raced to create the same release. It still runs when the
   # Windows job fails, so a broken desktop build never withholds the APK.
+  #
+  # A tagged build additionally requires the Windows job to have succeeded — a
+  # published version must not be missing half of what it claims to ship.
   release:
     needs: [build, windows]
-    if: always() && github.ref == 'refs/heads/main' && needs.build.result == 'success'
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (github.ref == 'refs/heads/main' ||
+       (startsWith(github.ref, 'refs/tags/v') && needs.windows.result == 'success'))
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download every artifact
         uses: actions/download-artifact@v4
         with:
@@ -316,19 +327,51 @@ jobs:
       - name: List what will be published
         run: find dist -type f -printf '%p  %s bytes\n'
 
-      - uses: softprops/action-gh-release@v2
+      # A version tag must ship both platforms. Catching that here rather than
+      # after publishing is the difference between a release and a retraction.
+      - name: A tagged release must have both platforms
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          MISSING=""
+          ls dist/gozar-apk/*.apk >/dev/null 2>&1 || MISSING="$MISSING apk"
+          ls dist/gozar-windows/*.msi >/dev/null 2>&1 || MISSING="$MISSING msi"
+          if [ -n "$MISSING" ]; then
+            echo "::error title=Incomplete release::Missing:$MISSING"
+            exit 1
+          fi
+          echo "both platforms present"
+
+      # Every push to main refreshes this one, so there is always a current
+      # build to hand someone without cutting a version.
+      - name: Rolling build
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest build
           body: |
-            Automatic build of `${{ github.sha }}`.
+            Automatic build of `${{ github.sha }}`. For a stable version see
+            the [releases page](../../releases).
 
             **Android** — install `app-arm64-v8a-release.apk` unless you know
             you need another ABI.
-            **Windows** — install `Gozar-1.0.0.msi`; no administrator rights
-            are needed.
+            **Windows** — install the `.msi`; no administrator rights needed.
           files: |
             dist/gozar-apk/*.apk
             dist/gozar-windows/*.msi
+          prerelease: true
+          make_latest: false
+
+      - name: Versioned release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Gozar ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            dist/gozar-apk/*.apk
+            dist/gozar-windows/*.msi
+          prerelease: false
+          make_latest: true
           prerelease: true
           make_latest: false
