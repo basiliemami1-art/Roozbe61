@@ -493,7 +493,13 @@ private fun ServersScreen(state: AppState) {
     val status by state.status.collectAsState()
     val activeId by state.activeServerId.collectAsState()
     val settings by state.settings.collectAsState()
-    val visible = state.visibleServers(all, query, filter, activeId)
+    // Filtering and sorting thousands of rows is not something to do on every
+    // recomposition — and a recomposition happens on every keystroke, every
+    // hover and every progress tick. Recomputed only when an input really
+    // changes, which is what made typing in the search box feel heavy.
+    val visible = remember(all, query, filter, activeId) {
+        state.visibleServers(all, query, filter, activeId)
+    }
     val text = LocalStrings.current
 
     Column(Modifier.fillMaxSize().padding(horizontal = 26.dp, vertical = 22.dp)) {
@@ -734,14 +740,14 @@ private fun SourcesScreen(state: AppState) {
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text(text.sourceHint) },
+                placeholder = { Text(text.pasteHint) },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
             )
             Spacer(Modifier.width(10.dp))
             TextButton(
                 onClick = {
-                    state.addSource(input)
+                    state.addPasted(input)
                     input = ""
                 },
                 enabled = input.isNotBlank(),
@@ -875,6 +881,9 @@ private fun SettingsScreen(state: AppState) {
             }
             SwitchRow(text.autoFastest, settings.autoSelectFastest) { value ->
                 state.update { it.copy(autoSelectFastest = value) }
+            }
+            SwitchRow(text.pruneDead, settings.pruneDead) { value ->
+                state.update { it.copy(pruneDead = value) }
             }
         }
 

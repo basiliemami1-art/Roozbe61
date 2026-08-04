@@ -14,6 +14,7 @@ import com.gozar.app.data.SettingsRepository
 import com.gozar.app.data.SourceEntity
 import com.gozar.app.data.ThemeMode
 import com.gozar.app.net.LatencyTester
+import com.gozar.app.net.Paste
 import com.gozar.app.net.SourceFetcher
 import com.gozar.app.net.SourceLoader
 import com.gozar.app.parser.ConfigParser
@@ -175,24 +176,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Takes whatever the user pasted: config links of any protocol, a whole
+     * base64 subscription body, a subscription URL, or a Telegram channel.
+     *
+     * One field rather than two — which of those it is is obvious from the
+     * text, and asking the user to classify it first is asking them to know how
+     * this app is built.
+     */
     fun addSource(input: String) {
         viewModelScope.launch {
-            val spec = SourceLoader.normalizeUserInput(input)
-            if (spec == null) {
-                emitToast(getApplication<Application>().getString(com.gozar.app.R.string.import_nothing))
-                return@launch
+            val context = getApplication<Application>()
+            when (val result = Paste.read(input)) {
+                null -> emitToast(context.getString(com.gozar.app.R.string.import_nothing))
+
+                is Paste.Result.Configs -> importConfigs(result.configs)
+
+                is Paste.Result.Source -> {
+                    database.sourceDao().insert(
+                        SourceEntity(
+                            name = result.spec.name,
+                            url = result.spec.url,
+                            kind = result.spec.kind.name,
+                            enabled = true,
+                            builtIn = false,
+                        ),
+                    )
+                    refreshSources()
+                }
             }
-            database.sourceDao().insert(
-                SourceEntity(
-                    name = spec.name,
-                    url = spec.url,
-                    kind = spec.kind.name,
-                    enabled = true,
-                    builtIn = false,
-                ),
-            )
-            refreshSources()
         }
+    }
+
+    private suspend fun importConfigs(configs: List<com.gozar.app.model.ProxyConfig>) {
+        val context = getApplication<Application>()
+        val entities = configs.map { config ->
+            ServerEntity(
+                uniqueKey = config.uniqueKey,
+                name = config.name.take(120).ifBlank { "${config.server}:${config.port}" },
+                protocol = config.protocol.name,
+                address = config.server,
+                port = config.port,
+                raw = config.raw,
+                sourceId = 0,
+                sourceName = "manual",
+                // Starred so a hand-added server is never pruned and never
+                // sinks below the scraped ones.
+                favorite = true,
+            )
+        }
+        val ids = database.serverDao().insertAll(entities)
+        val added = ids.count { it != -1L }
+        emitToast(context.getString(com.gozar.app.R.string.import_success, added))
     }
 
     fun setSourceEnabled(id: Long, enabled: Boolean) {
@@ -265,6 +300,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 tester.testAll { progress ->
                     _busy.value = BusyState.Testing(progress.done, progress.total, progress.alive)
                 }
+                // Only servers the sweep actually reached a verdict on, and
+                // never a starred one: an untested server might be the best in
+                // the list, and a starred one was kept deliberately.
+                if (current.pruneDead) {
+                    val removed = database.serverDao().deleteDead()
+                    if (removed > 0) Diagnostics.log("pruned $removed dead servers")
+                }
+                database.serverDao().prune(current.maxServers)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Throwable) {
@@ -374,6 +417,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRemoteDns(value: String) {
         viewModelScope.launch { settingsRepository.setRemoteDns(value) }
+    }
+
+    fun setPruneDead(value: Boolean) {
+        viewModelScope.launch { settingsRepository.setPruneDead(value) }
     }
 
     fun setAllowedProtocols(value: Set<String>) {

@@ -4,6 +4,7 @@ import com.gozar.app.core.IranRanges
 import com.gozar.app.data.Latency
 import com.gozar.app.data.Settings
 import com.gozar.app.model.Protocol
+import com.gozar.app.net.Paste
 import com.gozar.app.net.Prober
 import com.gozar.app.net.RealDelay
 import com.gozar.app.net.SourceLoader
@@ -246,6 +247,20 @@ class AppState(
         _servers.value = servers.sortedBy { it.sortWeight }.take(_settings.value.maxServers)
     }
 
+    /**
+     * Drops what has been proven dead.
+     *
+     * Only servers a sweep actually reached a verdict on: an untested one might
+     * be the best in the list. Favourites are kept whatever they measure —
+     * the user marked them for a reason.
+     */
+    private fun prune(servers: Collection<ServerRecord>): List<ServerRecord> {
+        if (!_settings.value.pruneDead) return servers.toList()
+        return servers.filter {
+            it.favorite || (it.latency != Latency.FAILED && it.realDelay != Latency.FAILED)
+        }
+    }
+
     fun refreshSources() {
         if (busyJob?.isActive == true) return
         busyJob = scope.launch {
@@ -348,16 +363,57 @@ class AppState(
         }
     }
 
-    fun addSource(input: String) {
-        val spec = SourceLoader.normalizeUserInput(input) ?: run {
-            log("could not read that as a link or channel")
-            return
+    /**
+     * Takes whatever the user pasted: config links of any protocol, a whole
+     * base64 subscription body, a subscription URL, or a Telegram channel.
+     *
+     * One field rather than two — which of those it is is obvious from the
+     * text, and asking the user to classify it first is asking them to know
+     * how this app is built.
+     */
+    fun addPasted(input: String) {
+        when (val result = Paste.read(input)) {
+            null -> log("could not read that as a config, link or channel")
+
+            is Paste.Result.Configs -> {
+                val known = _servers.value.mapTo(HashSet()) { it.uniqueKey }
+                var nextId = (_servers.value.maxOfOrNull { it.id } ?: 0L) + 1
+                val added = result.configs
+                    .filterNot { it.uniqueKey in known }
+                    .map { config ->
+                        ServerRecord(
+                            id = nextId++,
+                            uniqueKey = config.uniqueKey,
+                            name = config.name.take(120)
+                                .ifBlank { "${config.server}:${config.port}" },
+                            protocol = config.protocol.name,
+                            address = config.server,
+                            port = config.port,
+                            raw = config.raw,
+                            sourceName = "manual",
+                            // Starred so a hand-added server is never pruned and
+                            // never sinks below the scraped ones.
+                            favorite = true,
+                        )
+                    }
+                if (added.isEmpty()) {
+                    log("already had all ${result.configs.size} of those")
+                    return
+                }
+                _servers.value = (_servers.value + added).sortedBy { it.sortWeight }
+                scheduleSave()
+                log("added ${added.size} config(s) manually")
+            }
+
+            is Paste.Result.Source -> {
+                val spec = result.spec
+                if (_sources.value.any { it.url == spec.url }) return
+                _sources.value = _sources.value +
+                    SourceRecord(spec.name, spec.url, spec.kind.name, builtIn = false)
+                store.saveSources(_sources.value)
+                refreshSources()
+            }
         }
-        if (_sources.value.any { it.url == spec.url }) return
-        _sources.value = _sources.value +
-            SourceRecord(spec.name, spec.url, spec.kind.name, builtIn = false)
-        store.saveSources(_sources.value)
-        refreshSources()
     }
 
     fun setSourceEnabled(url: String, enabled: Boolean) {
@@ -427,8 +483,11 @@ class AppState(
             } finally {
                 // A cancelled sweep still keeps everything it measured. Safe to
                 // read unlocked here: every worker has stopped by now.
-                publishServers(byId.values, force = true)
+                val kept = prune(byId.values)
+                val dropped = byId.size - kept.size
+                publishServers(kept, force = true)
                 store.saveServers(_servers.value)
+                if (dropped > 0) log("dropped $dropped dead servers")
                 prober.shutdown()
                 _busy.value = null
             }
@@ -738,8 +797,31 @@ class AppState(
      * every browser on the machine at a port that is no longer listening.
      */
     fun shutdown() {
+        // A debounced save may still be pending, and the process is about to
+        // end — write it now rather than lose the last results.
+        saveJob?.cancel()
+        runCatching { store.saveServers(_servers.value) }
         tester.stop()
         teardown()
+    }
+
+    private var saveJob: Job? = null
+
+    /**
+     * Writes the list to disk, at most once per burst and never on the caller's
+     * thread.
+     *
+     * The whole list is one JSON document, so every save serialises thousands
+     * of records. Doing that inline on each connect attempt — which the retry
+     * loop performs over and over — was pure waste.
+     */
+    private fun scheduleSave() {
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(SAVE_DEBOUNCE_MS)
+            val snapshot = _servers.value
+            withContext(Dispatchers.IO) { store.saveServers(snapshot) }
+        }
     }
 
     /**
@@ -750,13 +832,13 @@ class AppState(
     private fun markLatency(id: Long, latency: Int) {
         val updated = _servers.value.map { if (it.id == id) it.copy(realDelay = latency) else it }
         _servers.value = updated
-        store.saveServers(updated)
+        scheduleSave()
     }
 
     fun toggleFavorite(id: Long) {
         val updated = _servers.value.map { if (it.id == id) it.copy(favorite = !it.favorite) else it }
         _servers.value = updated
-        store.saveServers(updated)
+        scheduleSave()
     }
 
     fun removeDead() {
@@ -781,6 +863,10 @@ class AppState(
         private const val DOMESTIC_ATTEMPTS = 3
         private const val RETRY_PAUSE_MS = 1_500L
         private const val PUBLISH_INTERVAL_MS = 400L
+
+        /** Long enough to absorb a burst of connect attempts, short enough to
+         *  survive a crash without losing much. */
+        private const val SAVE_DEBOUNCE_MS = 1_500L
 
         /**
          * How many of the best-pinged servers get a real request put through

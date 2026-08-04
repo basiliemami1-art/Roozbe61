@@ -36,7 +36,17 @@ data class Settings(
     val autoReconnect: Boolean = true,
     val testConcurrency: Int = 64,
     val testTimeoutSeconds: Int = 4,
-    val maxServers: Int = 10_000,
+    /**
+     * Ceiling on the stored list.
+     *
+     * Was 10,000. Nothing benefits from keeping that many: only the best few
+     * are ever measured, let alone connected to, and every one of them costs
+     * memory, a row to sort and a slice of every save. The sources hand out
+     * far more than this, so the cap is what keeps the app light.
+     */
+    val maxServers: Int = 3_000,
+    /** Drop servers that failed, once a sweep has actually tested them. */
+    val pruneDead: Boolean = true,
     val onboarded: Boolean = false,
 ) {
     /** True when [allowedProtocols] is empty, or names this protocol. */

@@ -190,6 +190,12 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     onCheckedChange = viewModel::setAutoSelectFastest,
                 )
                 SwitchRow(
+                    title = stringResource(R.string.prune_dead),
+                    subtitle = stringResource(R.string.prune_dead_desc),
+                    checked = settings.pruneDead,
+                    onCheckedChange = viewModel::setPruneDead,
+                )
+                SwitchRow(
                     title = stringResource(R.string.auto_update_sources),
                     subtitle = stringResource(R.string.auto_update_desc),
                     checked = settings.autoUpdateSources,

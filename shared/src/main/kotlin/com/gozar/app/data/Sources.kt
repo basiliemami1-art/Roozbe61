@@ -92,6 +92,16 @@ object DefaultSources {
         sub("Mahsa — MTN 3", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_3.txt"),
         sub("Mahsa — MTN 4", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_4.txt"),
         sub("WARP (Hiddify)", "https://raw.githubusercontent.com/hiddify/hiddify-app/refs/heads/main/test.configs/warp"),
+        // Added 2026-08-04 from hidashimora.github.io/free-vpn-anti-rkn, which
+        // is an index rather than a source: it points at these three.
+        //
+        // They are aimed at Russia, not Iran, and each repo mirrors the same
+        // list across dozens of numbered files — so one file from each is
+        // enough, and the app's own speed test decides whether any of it is
+        // usable from here. That is exactly what the measurement stage is for.
+        sub("AvenCores", "https://raw.githubusercontent.com/AvenCores/goida-vpn-configs/main/githubmirror/1.txt"),
+        sub("Hidashimora", "https://raw.githubusercontent.com/Hidashimora/free-vpn-anti-rkn/main/configs/1.20.txt"),
+        sub("igareck — VLESS", "https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt"),
     )
 
     val telegram: List<SourceSpec> = listOf(

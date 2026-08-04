@@ -76,6 +76,8 @@ private data class PersistedSettings(
     val testConcurrency: Int = 64,
     val testTimeoutSeconds: Int = 4,
     val allowedProtocols: Set<String> = emptySet(),
+    val pruneDead: Boolean = true,
+    val maxServers: Int = 3_000,
 )
 
 /**
@@ -165,6 +167,8 @@ class Store(private val dir: File) {
             testConcurrency = stored.testConcurrency,
             testTimeoutSeconds = stored.testTimeoutSeconds,
             allowedProtocols = stored.allowedProtocols,
+            pruneDead = stored.pruneDead,
+            maxServers = stored.maxServers,
         )
     }
 
@@ -182,6 +186,8 @@ class Store(private val dir: File) {
             testConcurrency = settings.testConcurrency,
             testTimeoutSeconds = settings.testTimeoutSeconds,
             allowedProtocols = settings.allowedProtocols,
+            pruneDead = settings.pruneDead,
+            maxServers = settings.maxServers,
         )
         runCatching {
             settingsFile.writeText(json.encodeToString(PersistedSettings.serializer(), persisted))

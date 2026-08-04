@@ -112,6 +112,8 @@
     <string name="settings_behavior">Behaviour</string>
     <string name="auto_select_fastest">Auto-pick the fastest server</string>
     <string name="auto_select_fastest_desc">Before connecting, the fastest healthy server is chosen</string>
+    <string name="prune_dead">Drop servers that fail the test</string>
+    <string name="prune_dead_desc">Servers that answer nothing are removed from the list</string>
     <string name="auto_update_sources">Auto-update sources</string>
     <string name="auto_update_desc">Pull fresh configs when the app opens</string>
     <string name="connect_on_boot">Connect on boot</string>

@@ -40,6 +40,7 @@ class SettingsRepository(private val context: Context) {
         val MAX_SERVERS = intPreferencesKey("max_servers")
         val ONBOARDED = booleanPreferencesKey("onboarded")
         val ALLOWED_PROTOCOLS = stringSetPreferencesKey("allowed_protocols")
+        val PRUNE_DEAD = booleanPreferencesKey("prune_dead")
 
         // Bookkeeping rather than a user setting, so it is not part of Settings.
         val SEEDED_SOURCES = stringSetPreferencesKey("seeded_sources")
@@ -72,13 +73,14 @@ class SettingsRepository(private val context: Context) {
             ?: PerAppMode.OFF,
         perAppList = this[Keys.PER_APP_LIST] ?: emptySet(),
         allowedProtocols = this[Keys.ALLOWED_PROTOCOLS] ?: emptySet(),
+        pruneDead = this[Keys.PRUNE_DEAD] ?: true,
         autoSelectFastest = this[Keys.AUTO_FASTEST] ?: true,
         autoUpdateSources = this[Keys.AUTO_UPDATE] ?: true,
         connectOnBoot = this[Keys.CONNECT_ON_BOOT] ?: false,
         autoReconnect = this[Keys.AUTO_RECONNECT] ?: true,
         testConcurrency = this[Keys.TEST_CONCURRENCY] ?: 64,
         testTimeoutSeconds = this[Keys.TEST_TIMEOUT] ?: 4,
-        maxServers = this[Keys.MAX_SERVERS] ?: 10_000,
+        maxServers = this[Keys.MAX_SERVERS] ?: 3_000,
         onboarded = this[Keys.ONBOARDED] ?: false,
     )
 
@@ -96,6 +98,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPerAppMode(value: PerAppMode) = put(Keys.PER_APP_MODE, value.name)
     suspend fun setPerAppList(value: Set<String>) = put(Keys.PER_APP_LIST, value)
     suspend fun setAllowedProtocols(value: Set<String>) = put(Keys.ALLOWED_PROTOCOLS, value)
+    suspend fun setPruneDead(value: Boolean) = put(Keys.PRUNE_DEAD, value)
     suspend fun setAutoSelectFastest(value: Boolean) = put(Keys.AUTO_FASTEST, value)
     suspend fun setAutoUpdateSources(value: Boolean) = put(Keys.AUTO_UPDATE, value)
     suspend fun setConnectOnBoot(value: Boolean) = put(Keys.CONNECT_ON_BOOT, value)

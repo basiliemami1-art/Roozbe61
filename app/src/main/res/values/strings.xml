@@ -113,6 +113,8 @@
     <string name="settings_behavior">رفتار</string>
     <string name="auto_select_fastest">انتخاب خودکار سریع‌ترین سرور</string>
     <string name="auto_select_fastest_desc">پیش از اتصال، سریع‌ترین سرور سالم انتخاب می‌شود</string>
+    <string name="prune_dead">حذف خودکار سرورهای مرده</string>
+    <string name="prune_dead_desc">سرورهایی که در تست جواب ندهند از لیست پاک می‌شوند</string>
     <string name="auto_update_sources">به‌روزرسانی خودکار منابع</string>
     <string name="auto_update_desc">هنگام باز شدن برنامه، کانفیگ‌های تازه گرفته می‌شود</string>
     <string name="connect_on_boot">اتصال هنگام روشن شدن دستگاه</string>
