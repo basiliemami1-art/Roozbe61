@@ -57,6 +57,7 @@ data class Strings(
     val updatingSources: String,
     val testing: String,
     val measuring: String,
+    val speedTesting: String,
     val provenHint: String,
     val cancel: String,
 
@@ -145,6 +146,7 @@ data class Strings(
             updatingSources = "Updating sources",
             testing = "Pinging",
             measuring = "Measuring through the proxy",
+            speedTesting = "Speed test",
             provenHint = "Measured through the proxy",
             cancel = "Cancel",
             sourceHint = "https://…  or  t.me/channel",
@@ -225,6 +227,7 @@ data class Strings(
             updatingSources = "به‌روزرسانی منابع",
             testing = "پینگ",
             measuring = "اندازه‌گیری از داخل تونل",
+            speedTesting = "تست سرعت",
             provenHint = "از داخل تونل اندازه‌گیری شده",
             cancel = "لغو",
             sourceHint = "https://…  یا  t.me/channel",

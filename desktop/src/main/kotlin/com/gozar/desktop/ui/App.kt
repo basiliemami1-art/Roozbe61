@@ -421,6 +421,9 @@ private fun ConnectScreen(state: AppState) {
                 }
                 Spacer(Modifier.height(11.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (active.measured) {
+                        Chip(formatSpeed(active.speedKb * 1024L), tint = Sky)
+                    }
                     Chip(active.protocol, tint = Violet)
                     if (active.domesticEntry) Chip(text.domesticEntry, tint = Amber)
                     LatencyPill(active.shownLatency, proven = active.proven)
@@ -584,6 +587,17 @@ private fun ServersScreen(state: AppState) {
                         Sky,
                     )
 
+                    is Busy.Speed -> Triple(
+                        "${text.speedTesting}  ${current.done}/${current.total}" +
+                            if (current.bestKb > 0) {
+                                "  ·  ${formatSpeed(current.bestKb * 1024L)}"
+                            } else {
+                                ""
+                            },
+                        current.done.toFloat() / current.total.coerceAtLeast(1),
+                        Amber,
+                    )
+
                     null -> Triple("", 0f, Violet)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -654,6 +668,10 @@ private fun ServerRow(
                     if (active) {
                         Chip(text.statusConnected, tint = MintDeep)
                     }
+                    // The measured figure leads: it is what the choice is
+                    // actually made on, and the only one that says whether the
+                    // server has any bandwidth left to give.
+                    if (server.measured) Chip(formatSpeed(server.speedKb * 1024L), tint = Sky)
                     if (server.domesticEntry) Chip(text.domestic, tint = Amber)
                     Chip(server.protocol, tint = Violet)
                     Text(

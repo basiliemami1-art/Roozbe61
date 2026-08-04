@@ -63,6 +63,15 @@ data class ServerEntity(
      */
     @ColumnInfo(defaultValue = "-1")
     val realDelay: Int = Latency.UNTESTED,
+    /**
+     * KB/s measured by downloading through this proxy.
+     *
+     * The figure the ranking is built on. Delay says a server answers; only
+     * this says it has bandwidth left, and these lists are full of servers
+     * shared by enough people that there is none.
+     */
+    @ColumnInfo(defaultValue = "-1")
+    val speedKb: Int = Latency.UNTESTED,
     val lastTested: Long = 0,
     val favorite: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
@@ -92,4 +101,7 @@ data class ServerEntity(
 
     /** A real request has gone through this proxy and come back. */
     val proven: Boolean get() = realDelay > 0
+
+    /** Throughput was actually measured. */
+    val measured: Boolean get() = speedKb > 0
 }

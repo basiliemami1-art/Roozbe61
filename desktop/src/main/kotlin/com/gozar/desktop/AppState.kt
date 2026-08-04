@@ -56,6 +56,9 @@ sealed interface Busy {
 
     /** The real request through each of the best few. */
     data class Measuring(val done: Int, val total: Int, val alive: Int) : Busy
+
+    /** The download through each of the best few, one at a time. */
+    data class Speed(val done: Int, val total: Int, val bestKb: Int) : Busy
 }
 
 /**
@@ -458,10 +461,11 @@ class AppState(
 
         _busy.value = Busy.Measuring(0, candidates.size, 0)
         log("measuring ${candidates.size} servers through the proxy")
-        val outcomes = tester.measure(
+        val results = tester.measure(
             candidates = candidates,
             settings = settings,
-            onResult = { outcome ->
+            speedTop = SPEED_TEST_SIZE,
+            onDelay = { outcome ->
                 resultsGuard.withLock {
                     byId[outcome.id]?.let {
                         byId[outcome.id] = it.copy(realDelay = outcome.delayMs)
@@ -469,10 +473,23 @@ class AppState(
                     publishServers(byId.values)
                 }
             },
-            onProgress = { _busy.value = Busy.Measuring(it.done, it.total, it.alive) },
+            onDelayProgress = { _busy.value = Busy.Measuring(it.done, it.total, it.alive) },
+            onSpeed = { outcome ->
+                resultsGuard.withLock {
+                    byId[outcome.id]?.let {
+                        byId[outcome.id] = it.copy(speedKb = outcome.kbPerSecond)
+                    }
+                    publishServers(byId.values, force = true)
+                }
+            },
+            onSpeedProgress = { _busy.value = Busy.Speed(it.done, it.total, it.best) },
         )
-        val working = outcomes.count { it.delayMs > 0 }
-        log("$working of ${candidates.size} carried a real request")
+        val working = results.delays.count { it.delayMs > 0 }
+        val fastest = results.speeds.maxOfOrNull { it.kbPerSecond } ?: 0
+        log(
+            "$working of ${candidates.size} carried a request; " +
+                "fastest of ${results.speeds.size} measured: $fastest KB/s",
+        )
     }
 
     fun cancelBusy() {
@@ -771,6 +788,13 @@ class AppState(
          * user's own connection, so this stays a shortlist.
          */
         private const val REAL_TEST_SIZE = 50
+
+        /**
+         * How many of the best-responding get a download put through them.
+         * Each spends up to 1.5 MB of the user's own data and runs on its own
+         * so the measurements do not share the line, so this stays small.
+         */
+        private const val SPEED_TEST_SIZE = 8
 
         private val UDP_PROTOCOLS = setOf(
             Protocol.HYSTERIA2.name,

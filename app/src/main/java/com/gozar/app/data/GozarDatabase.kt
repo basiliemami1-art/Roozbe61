@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SourceEntity::class, ServerEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class GozarDatabase : RoomDatabase() {
@@ -61,6 +61,15 @@ abstract class GozarDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the throughput measured through the proxy. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE servers ADD COLUMN speedKb INTEGER NOT NULL DEFAULT -1",
+                )
+            }
+        }
+
         @Volatile
         private var instance: GozarDatabase? = null
 
@@ -70,7 +79,7 @@ abstract class GozarDatabase : RoomDatabase() {
                 GozarDatabase::class.java,
                 "gozar.db",
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

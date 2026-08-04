@@ -166,9 +166,10 @@ interface ServerDao {
         UPDATE servers
         SET latency = :latency, lastTested = :time, domesticEntry = :domestic,
             sortWeight = CASE
-                WHEN realDelay > 0 THEN realDelay
+                WHEN speedKb > 0 THEN MAX(1, MIN(49999, 10000 / speedKb))
+                WHEN realDelay > 0 THEN 50000 + MIN(49999, realDelay)
                 WHEN realDelay = -2 THEN 999999
-                WHEN :latency > 0 THEN 100000 + :latency
+                WHEN :latency > 0 THEN 100000 + MIN(799999, :latency)
                 WHEN :latency = -1 THEN 900000
                 ELSE 999999
             END
@@ -188,9 +189,10 @@ interface ServerDao {
         UPDATE servers
         SET realDelay = :realDelay, lastTested = :time,
             sortWeight = CASE
-                WHEN :realDelay > 0 THEN :realDelay
+                WHEN speedKb > 0 THEN MAX(1, MIN(49999, 10000 / speedKb))
+                WHEN :realDelay > 0 THEN 50000 + MIN(49999, :realDelay)
                 WHEN :realDelay = -2 THEN 999999
-                WHEN latency > 0 THEN 100000 + latency
+                WHEN latency > 0 THEN 100000 + MIN(799999, latency)
                 WHEN latency = -1 THEN 900000
                 ELSE 999999
             END
@@ -198,6 +200,24 @@ interface ServerDao {
         """,
     )
     suspend fun updateRealDelay(id: Long, realDelay: Int, time: Long)
+
+    /** Same mirror of [com.gozar.app.data.Latency.rank], from the speed side. */
+    @Query(
+        """
+        UPDATE servers
+        SET speedKb = :speedKb, lastTested = :time,
+            sortWeight = CASE
+                WHEN :speedKb > 0 THEN MAX(1, MIN(49999, 10000 / :speedKb))
+                WHEN realDelay > 0 THEN 50000 + MIN(49999, realDelay)
+                WHEN realDelay = -2 THEN 999999
+                WHEN latency > 0 THEN 100000 + MIN(799999, latency)
+                WHEN latency = -1 THEN 900000
+                ELSE 999999
+            END
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateSpeed(id: Long, speedKb: Int, time: Long)
 
     /** Written in one transaction, for the same reason as [updateLatencies]. */
     @Transaction

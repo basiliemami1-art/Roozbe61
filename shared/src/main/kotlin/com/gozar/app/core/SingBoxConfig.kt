@@ -117,10 +117,14 @@ object SingBoxConfig {
      *
      * @param candidates tag to config. Tags must match what the caller queries.
      */
+    /** The selector the speed stage switches to point at one server at a time. */
+    const val SELECTOR_TAG = "pick"
+
     fun buildTester(
         candidates: List<Pair<String, ProxyConfig>>,
         settings: Settings,
         clashApiPort: Int,
+        localProxyPort: Int? = null,
     ): String {
         val root = buildJsonObject {
             putJsonObject("log") {
@@ -138,7 +142,21 @@ object SingBoxConfig {
                 }
                 put("final", DNS_LOCAL_TAG)
             }
-            putJsonArray("inbounds") {}
+            putJsonArray("inbounds") {
+                // Only for the throughput stage: something has to carry a real
+                // download, and the delay stage needs no inbound at all.
+                if (localProxyPort != null) {
+                    add(
+                        buildJsonObject {
+                            put("type", "mixed")
+                            put("tag", "test-in")
+                            put("listen", "127.0.0.1")
+                            put("listen_port", localProxyPort)
+                        },
+                    )
+                }
+            }
+            val usable = ArrayList<String>()
             putJsonArray("outbounds") {
                 add(
                     buildJsonObject {
@@ -148,11 +166,28 @@ object SingBoxConfig {
                 )
                 for ((tag, proxy) in candidates) {
                     // One unbuildable config must not cost the whole sweep.
-                    runCatching { buildOutbound(proxy, tag) }.getOrNull()?.let { add(it) }
+                    runCatching { buildOutbound(proxy, tag) }.getOrNull()?.let {
+                        add(it)
+                        usable += tag
+                    }
+                }
+                // A selector so the throughput stage can point the inbound at
+                // one server at a time over the Clash API, rather than
+                // rebuilding and restarting the core for every candidate.
+                if (localProxyPort != null && usable.isNotEmpty()) {
+                    add(
+                        buildJsonObject {
+                            put("type", "selector")
+                            put("tag", SELECTOR_TAG)
+                            put("outbounds", stringArray(usable))
+                            put("default", usable.first())
+                            put("interrupt_exist_connections", true)
+                        },
+                    )
                 }
             }
             putJsonObject("route") {
-                put("final", DIRECT_TAG)
+                put("final", if (localProxyPort != null && usable.isNotEmpty()) SELECTOR_TAG else DIRECT_TAG)
                 put("auto_detect_interface", true)
                 putJsonObject("default_domain_resolver") {
                     put("server", DNS_LOCAL_TAG)

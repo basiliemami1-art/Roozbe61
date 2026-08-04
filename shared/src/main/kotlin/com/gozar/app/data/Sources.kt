@@ -75,6 +75,23 @@ object DefaultSources {
         // install at connect time, since a published key would be one account
         // shared by everyone using this app.
         sub("WARP (IRCF)", "https://raw.githubusercontent.com/ircfspace/warpsub/main/export/warp"),
+        // Added 2026-08-04 after reading what Hiddify actually subscribes to.
+        //
+        // MahsaNet keeps small hand-curated lists split by Iranian mobile
+        // operator — mci is Hamrah-e Aval, mtn is Irancell. That split is the
+        // point: the bottleneck here is usually the operator's own
+        // international routing, so a server that is fast on one can be
+        // unusable on the other. A few dozen maintained configs beat twenty
+        // thousand scraped ones that thousands of people are already sharing.
+        sub("Mahsa — MCI 1", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_1.txt"),
+        sub("Mahsa — MCI 2", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_2.txt"),
+        sub("Mahsa — MCI 3", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_3.txt"),
+        sub("Mahsa — MCI 4", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mci/sub_4.txt"),
+        sub("Mahsa — MTN 1", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_1.txt"),
+        sub("Mahsa — MTN 2", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_2.txt"),
+        sub("Mahsa — MTN 3", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_3.txt"),
+        sub("Mahsa — MTN 4", "https://raw.githubusercontent.com/mahsanet/MahsaFreeConfig/refs/heads/main/mtn/sub_4.txt"),
+        sub("WARP (Hiddify)", "https://raw.githubusercontent.com/hiddify/hiddify-app/refs/heads/main/test.configs/warp"),
     )
 
     val telegram: List<SourceSpec> = listOf(

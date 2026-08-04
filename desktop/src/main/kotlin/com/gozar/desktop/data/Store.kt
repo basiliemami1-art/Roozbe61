@@ -24,17 +24,21 @@ data class ServerRecord(
     val sourceName: String = "",
     /** TCP handshake to the server's address; cheap, and only a reachability check. */
     val latency: Int = Latency.UNTESTED,
-    /** A real request timed through this proxy. Decides the ranking when known. */
+    /** A real request timed through this proxy. */
     val realDelay: Int = Latency.UNTESTED,
+    /** KB/s measured by downloading through this proxy. Decides the ranking. */
+    val speedKb: Int = Latency.UNTESTED,
     val favorite: Boolean = false,
     val domesticEntry: Boolean = false,
 ) {
-    val sortWeight: Int get() = Latency.rank(realDelay, latency)
+    val sortWeight: Int get() = Latency.rank(speedKb, realDelay, latency)
 
     /** What the list shows: the measurement that was actually earned. */
     val shownLatency: Int get() = if (realDelay != Latency.UNTESTED) realDelay else latency
 
     val proven: Boolean get() = realDelay > 0
+
+    val measured: Boolean get() = speedKb > 0
 }
 
 @Serializable

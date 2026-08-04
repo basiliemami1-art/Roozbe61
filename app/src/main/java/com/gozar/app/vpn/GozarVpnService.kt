@@ -18,6 +18,7 @@ import com.gozar.app.data.Settings
 import com.gozar.app.data.SettingsRepository
 import com.gozar.app.net.LatencyTester
 import com.gozar.app.net.RealDelay
+import com.gozar.app.net.SpeedTest
 import com.gozar.app.net.Warp
 import com.gozar.app.parser.ConfigParser
 import io.nekohasekai.libbox.CommandServer
@@ -243,18 +244,20 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
         if (candidates.isEmpty()) return
 
         val apiPort = findFreePort()
+        val testProxyPort = findFreePort()
         Diagnostics.log("measuring ${candidates.size} servers through the proxy")
         VpnState.setProgress(getString(R.string.measuring_servers, candidates.size))
 
-        val outcomes = runCatching {
+        runCatching {
             applyConfig(
                 SingBoxConfig.buildTester(
                     candidates = candidates.map { (id, proxy) -> RealDelay.tagFor(id) to proxy },
                     settings = settings,
                     clashApiPort = apiPort,
+                    localProxyPort = testProxyPort,
                 ),
             )
-            RealDelay.measureAll(
+            val delays = RealDelay.measureAll(
                 apiPort = apiPort,
                 candidates = candidates,
                 onResult = { outcome ->
@@ -270,11 +273,41 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
                     )
                 },
             )
-        }.getOrElse { error ->
+            Diagnostics.log(
+                "${delays.count { it.delayMs > 0 }} of ${candidates.size} answered",
+            )
+
+            // Responsiveness only narrowed the field. What the user is actually
+            // choosing on is how fast the thing moves bytes, and no amount of
+            // delay measurement answers that.
+            val fastest = delays.filter { it.delayMs > 0 }
+                .sortedBy { it.delayMs }
+                .take(SPEED_TEST_SIZE)
+                .map { it.id }
+            val speeds = SpeedTest.measureAll(
+                apiPort = apiPort,
+                proxyPort = testProxyPort,
+                candidates = fastest,
+                onResult = { outcome ->
+                    database.serverDao().updateSpeed(
+                        outcome.id,
+                        outcome.kbPerSecond,
+                        System.currentTimeMillis(),
+                    )
+                },
+                onProgress = { progress ->
+                    VpnState.setProgress(
+                        getString(R.string.speed_progress, progress.done, progress.total),
+                    )
+                },
+            )
+            Diagnostics.log(
+                "fastest of ${speeds.size} measured: " +
+                    "${speeds.maxOfOrNull { it.kbPerSecond } ?: 0} KB/s",
+            )
+        }.onFailure { error ->
             Diagnostics.log("measurement stage failed: ${error.message}")
-            emptyList()
         }
-        Diagnostics.log("${outcomes.count { it.delayMs > 0 }} of ${candidates.size} answered")
     }
 
     /** @return null once the tunnel is verified, otherwise why it is not. */
@@ -583,6 +616,13 @@ class GozarVpnService : android.net.VpnService(), CommandServerHandler {
          * trip on the user's own connection, so this stays a shortlist.
          */
         private const val REAL_TEST_SIZE = 50
+
+        /**
+         * How many of the best-responding get a download put through them.
+         * Each spends up to 1.5 MB of the user's own data and runs alone so the
+         * measurements do not share the line, so this stays small.
+         */
+        private const val SPEED_TEST_SIZE = 8
 
         /** Enough recently measured servers to connect without measuring again. */
         private const val ENOUGH_PROVEN = 5

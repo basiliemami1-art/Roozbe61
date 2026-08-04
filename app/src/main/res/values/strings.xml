@@ -150,6 +150,7 @@
     <string name="trying_server_round">آزمایش %1$d از %2$d (دور %3$d) — %4$s</string>
     <string name="measuring_servers">اندازه‌گیری %1$d سرور از داخل تونل…</string>
     <string name="measuring_progress">اندازه‌گیری %1$d از %2$d</string>
+    <string name="speed_progress">تست سرعت %1$d از %2$d</string>
     <string name="protocols">پروتکل‌ها</string>
     <string name="protocols_all">همه</string>
     <string name="protocols_hint">اگر چیزی انتخاب نکنید، از همه استفاده می‌شود</string>

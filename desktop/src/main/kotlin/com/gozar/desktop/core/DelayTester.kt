@@ -4,6 +4,7 @@ import com.gozar.app.core.SingBoxConfig
 import com.gozar.app.data.Settings
 import com.gozar.app.model.ProxyConfig
 import com.gozar.app.net.RealDelay
+import com.gozar.app.net.SpeedTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -28,27 +29,38 @@ class DelayTester(
     @Volatile
     private var process: Process? = null
 
+    /** Both stages, over one core: responsiveness first, then throughput. */
+    data class Results(
+        val delays: List<RealDelay.Outcome> = emptyList(),
+        val speeds: List<SpeedTest.Outcome> = emptyList(),
+    )
+
     /**
      * @param candidates id to config, already shortlisted.
-     * @return the measurements; empty if the core never came up.
+     * @param speedTop how many of the best-responding get a download put
+     *   through them. Every one spends the user's own data, so it stays small.
      */
     suspend fun measure(
         candidates: List<Pair<Long, ProxyConfig>>,
         settings: Settings,
-        onResult: suspend (RealDelay.Outcome) -> Unit = {},
-        onProgress: (RealDelay.Progress) -> Unit = {},
-    ): List<RealDelay.Outcome> {
-        if (candidates.isEmpty()) return emptyList()
+        speedTop: Int = 8,
+        onDelay: suspend (RealDelay.Outcome) -> Unit = {},
+        onDelayProgress: (RealDelay.Progress) -> Unit = {},
+        onSpeed: suspend (SpeedTest.Outcome) -> Unit = {},
+        onSpeedProgress: (SpeedTest.Progress) -> Unit = {},
+    ): Results {
+        if (candidates.isEmpty()) return Results()
         if (!binary.exists()) {
             onLog("cannot measure: sing-box is missing at ${binary.absolutePath}")
-            return emptyList()
+            return Results()
         }
 
-        val apiPort = SingBoxProcess.findFreePort()
+        val (apiPort, proxyPort) = SingBoxProcess.findFreePorts(2)
         val config = SingBoxConfig.buildTester(
             candidates = candidates.map { (id, proxy) -> RealDelay.tagFor(id) to proxy },
             settings = settings,
             clashApiPort = apiPort,
+            localProxyPort = proxyPort,
         )
         val dir = File(workDir, "test").apply { mkdirs() }
         val configFile = File(dir, "tester.json")
@@ -58,17 +70,33 @@ class DelayTester(
                 configFile.writeText(config)
                 start(dir, configFile)
             }
-            if (!up) return emptyList()
-            RealDelay.measureAll(
+            if (!up) return Results()
+
+            val delays = RealDelay.measureAll(
                 apiPort = apiPort,
                 candidates = candidates,
                 // Higher than the default: these are 204 responses, and the wait
                 // is almost entirely the timeout on servers that never answer.
                 // At eight, fifty candidates took over half a minute.
                 concurrency = 16,
-                onResult = onResult,
-                onProgress = onProgress,
+                onResult = onDelay,
+                onProgress = onDelayProgress,
             )
+
+            // Only the ones that answered, best first — there is no point
+            // spending a download on a server that could not return a 204.
+            val fastest = delays.filter { it.delayMs > 0 }
+                .sortedBy { it.delayMs }
+                .take(speedTop)
+                .map { it.id }
+            val speeds = SpeedTest.measureAll(
+                apiPort = apiPort,
+                proxyPort = proxyPort,
+                candidates = fastest,
+                onResult = onSpeed,
+                onProgress = onSpeedProgress,
+            )
+            Results(delays, speeds)
         } finally {
             stop()
         }
